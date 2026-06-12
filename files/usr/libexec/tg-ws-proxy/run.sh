@@ -14,7 +14,10 @@ set -eu
 [ -n "${PYTHONPYCACHEPREFIX:-}" ] && mkdir -p "$PYTHONPYCACHEPREFIX" 2>/dev/null || true
 
 ENV_FILE="/etc/tg-ws-proxy.env"
-[ -f "$ENV_FILE" ] || { echo "Error: missing $ENV_FILE" >&2; exit 1; }
+[ -f "$ENV_FILE" ] || {
+  echo "Error: missing $ENV_FILE" >&2
+  exit 1
+}
 
 # shellcheck disable=SC1090
 . "$ENV_FILE"
@@ -39,7 +42,7 @@ ENV_FILE="/etc/tg-ws-proxy.env"
 
 is_true() {
   case "${1:-}" in
-    1|true|TRUE|yes|YES|on|ON) return 0 ;;
+    1 | true | TRUE | yes | YES | on | ON) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -47,16 +50,31 @@ is_true() {
 validate_port() {
   # Must be an integer in range 1..65535.
   local p="${1:-}"
-  echo "$p" | grep -Eq '^[0-9]+$' || { echo "Error: TGWS_PORT must be a number (1..65535)" >&2; exit 1; }
-  [ "$p" -ge 1 ] && [ "$p" -le 65535 ] || { echo "Error: TGWS_PORT is out of range (1..65535)" >&2; exit 1; }
+  echo "$p" | grep -Eq '^[0-9]+$' || {
+    echo "Error: TGWS_PORT must be a number (1..65535)" >&2
+    exit 1
+  }
+  [ "$p" -ge 1 ] && [ "$p" -le 65535 ] || {
+    echo "Error: TGWS_PORT is out of range (1..65535)" >&2
+    exit 1
+  }
 }
 
 validate_host() {
   # Allow common bind formats: IPv4/IPv6/hostname/0.0.0.0
   local h="${1:-}"
-  [ -n "$h" ] || { echo "Error: TGWS_HOST is empty" >&2; exit 1; }
-  echo "$h" | grep -q '[[:space:]]' && { echo "Error: TGWS_HOST contains whitespace" >&2; exit 1; }
-  echo "$h" | grep -Eq '^[0-9A-Za-z:.%-]+$' || { echo "Error: TGWS_HOST contains invalid characters" >&2; exit 1; }
+  [ -n "$h" ] || {
+    echo "Error: TGWS_HOST is empty" >&2
+    exit 1
+  }
+  echo "$h" | grep -q '[[:space:]]' && {
+    echo "Error: TGWS_HOST contains whitespace" >&2
+    exit 1
+  }
+  echo "$h" | grep -Eq '^[0-9A-Za-z:.%-]+$' || {
+    echo "Error: TGWS_HOST contains invalid characters" >&2
+    exit 1
+  }
 }
 
 validate_host "$TGWS_HOST"

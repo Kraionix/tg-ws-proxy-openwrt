@@ -72,7 +72,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
     SECRET=$(dd if=/dev/urandom bs=16 count=1 2>/dev/null | od -An -tx1 | tr -d ' \n')
   fi
 
-  sed "s/PLACEHOLDER_SECRET/$SECRET/" "$EXAMPLE_FILE" > "$CONFIG_FILE"
+  sed "s/PLACEHOLDER_SECRET/$SECRET/" "$EXAMPLE_FILE" >"$CONFIG_FILE"
 
   # If TGWS_GIT_REF passed as environment variable during first install, persist it.
   if [ -n "${TGWS_GIT_REF:-}" ]; then
@@ -80,7 +80,7 @@ if [ ! -f "$CONFIG_FILE" ]; then
     if grep -q '^TGWS_GIT_REF=' "$CONFIG_FILE"; then
       sed -i "s|^TGWS_GIT_REF=.*$|TGWS_GIT_REF=\"${esc_ref}\"|g" "$CONFIG_FILE"
     else
-      echo "TGWS_GIT_REF=\"${TGWS_GIT_REF}\"" >> "$CONFIG_FILE"
+      echo "TGWS_GIT_REF=\"${TGWS_GIT_REF}\"" >>"$CONFIG_FILE"
     fi
   fi
 
@@ -121,9 +121,18 @@ resolve_git_ref() {
   # Resolve pin ref to something git can checkout reliably.
   # Accepts: commit hash, tag, branch name, origin/branch.
   local ref="$1"
-  git rev-parse --verify -q "${ref}^{commit}" >/dev/null 2>&1 && { echo "$ref"; return 0; }
-  git rev-parse --verify -q "origin/${ref}^{commit}" >/dev/null 2>&1 && { echo "origin/$ref"; return 0; }
-  git rev-parse --verify -q "refs/tags/${ref}^{commit}" >/dev/null 2>&1 && { echo "refs/tags/$ref"; return 0; }
+  git rev-parse --verify -q "${ref}^{commit}" >/dev/null 2>&1 && {
+    echo "$ref"
+    return 0
+  }
+  git rev-parse --verify -q "origin/${ref}^{commit}" >/dev/null 2>&1 && {
+    echo "origin/$ref"
+    return 0
+  }
+  git rev-parse --verify -q "refs/tags/${ref}^{commit}" >/dev/null 2>&1 && {
+    echo "refs/tags/$ref"
+    return 0
+  }
   return 1
 }
 
@@ -164,9 +173,9 @@ cd "$TARGET_DIR"
 # - redirect pycache to /tmp (RAM)
 mkdir -p /tmp/tg-ws-proxy-pycache 2>/dev/null || true
 PIP_DISABLE_PIP_VERSION_CHECK=1 \
-PYTHONDONTWRITEBYTECODE=1 \
-PYTHONPYCACHEPREFIX=/tmp/tg-ws-proxy-pycache \
-python3 -m pip install --no-cache-dir --no-compile . -q
+  PYTHONDONTWRITEBYTECODE=1 \
+  PYTHONPYCACHEPREFIX=/tmp/tg-ws-proxy-pycache \
+  python3 -m pip install --no-cache-dir --no-compile . -q
 
 ok "Python package installed."
 
@@ -219,7 +228,7 @@ SYSUPGRADE_CONF="/etc/sysupgrade.conf"
 ENTRIES="/etc/tg-ws-proxy.env"
 for entry in $ENTRIES; do
   if ! grep -q "^$entry\$" "$SYSUPGRADE_CONF" 2>/dev/null; then
-    echo "$entry" >> "$SYSUPGRADE_CONF"
+    echo "$entry" >>"$SYSUPGRADE_CONF"
   fi
 done
 ok "Backup paths added to sysupgrade.conf."

@@ -37,8 +37,7 @@ EXAMPLE_FILE="$SRC/etc/tg-ws-proxy.env.example"
 log "Checking dependencies..."
 for pkg in ca-certificates python3 python3-pip git \
   procps-ng-pgrep \
-  shadow-useradd shadow-groupadd shadow-usermod shadow-userdel shadow-groupdel
-do
+  shadow-useradd shadow-groupadd shadow-usermod shadow-userdel shadow-groupdel; do
   if ! apk info -e "$pkg" >/dev/null 2>&1; then
     warn "Missing package $pkg; installing..."
     apk -U add -q "$pkg"
@@ -61,9 +60,18 @@ require_cmd pgrep "Install: apk -U add procps-ng-pgrep"
 
 resolve_git_ref() {
   local ref="$1"
-  git rev-parse --verify -q "${ref}^{commit}" >/dev/null 2>&1 && { echo "$ref"; return 0; }
-  git rev-parse --verify -q "origin/${ref}^{commit}" >/dev/null 2>&1 && { echo "origin/$ref"; return 0; }
-  git rev-parse --verify -q "refs/tags/${ref}^{commit}" >/dev/null 2>&1 && { echo "refs/tags/$ref"; return 0; }
+  git rev-parse --verify -q "${ref}^{commit}" >/dev/null 2>&1 && {
+    echo "$ref"
+    return 0
+  }
+  git rev-parse --verify -q "origin/${ref}^{commit}" >/dev/null 2>&1 && {
+    echo "origin/$ref"
+    return 0
+  }
+  git rev-parse --verify -q "refs/tags/${ref}^{commit}" >/dev/null 2>&1 && {
+    echo "refs/tags/$ref"
+    return 0
+  }
   return 1
 }
 
@@ -90,9 +98,9 @@ log "Reinstalling Python package..."
 cd "$TARGET_DIR"
 mkdir -p /tmp/tg-ws-proxy-pycache 2>/dev/null || true
 PIP_DISABLE_PIP_VERSION_CHECK=1 \
-PYTHONDONTWRITEBYTECODE=1 \
-PYTHONPYCACHEPREFIX=/tmp/tg-ws-proxy-pycache \
-python3 -m pip install --no-cache-dir --no-compile . -q
+  PYTHONDONTWRITEBYTECODE=1 \
+  PYTHONPYCACHEPREFIX=/tmp/tg-ws-proxy-pycache \
+  python3 -m pip install --no-cache-dir --no-compile . -q
 ok "Python package updated."
 
 log "Updating system files..."

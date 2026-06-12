@@ -17,9 +17,18 @@ TGWS_LOCKFILE="/var/lock/tg-ws-proxy.lock"
 
 get_lan_ip() {
   local ip
-  ip=$(uci get network.lan.ipaddr 2>/dev/null) && [ -n "$ip" ] && { echo "$ip"; return 0; }
-  ip=$(ip -4 addr show br-lan 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -n1) && [ -n "$ip" ] && { echo "$ip"; return 0; }
-  ip=$(ip -4 addr show lan 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -n1) && [ -n "$ip" ] && { echo "$ip"; return 0; }
+  ip=$(uci get network.lan.ipaddr 2>/dev/null) && [ -n "$ip" ] && {
+    echo "$ip"
+    return 0
+  }
+  ip=$(ip -4 addr show br-lan 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -n1) && [ -n "$ip" ] && {
+    echo "$ip"
+    return 0
+  }
+  ip=$(ip -4 addr show lan 2>/dev/null | awk '/inet /{print $2}' | cut -d/ -f1 | head -n1) && [ -n "$ip" ] && {
+    echo "$ip"
+    return 0
+  }
   return 1
 }
 
@@ -57,7 +66,10 @@ WARN='\033[1;33m'
 ERR='\033[1;31m'
 NC='\033[0m'
 
-log()  { echo -e "${INFO}[INFO]${NC} $*"; }
-ok()   { echo -e "${OK}[OK]${NC} $*"; }
+log() { echo -e "${INFO}[INFO]${NC} $*"; }
+ok() { echo -e "${OK}[OK]${NC} $*"; }
 warn() { echo -e "${WARN}[WARN]${NC} $*" >&2; }
-err()  { echo -e "${ERR}[ERROR]${NC} $*" >&2; exit 1; }
+err() {
+  echo -e "${ERR}[ERROR]${NC} $*" >&2
+  exit 1
+}

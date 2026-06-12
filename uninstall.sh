@@ -70,7 +70,7 @@ if [ "$DRY_RUN" -eq 0 ] && [ "$FORCE" -eq 0 ]; then
   printf "Continue? (y/N): "
   read -r CONFIRM
   case "$CONFIRM" in
-    y|Y) ;;
+    y | Y) ;;
     *) err "Uninstall cancelled." ;;
   esac
 fi
@@ -150,7 +150,7 @@ remove_log_if_safe() {
   [ -n "$f" ] || return 0
 
   case "$f" in
-    /var/log/tg-ws-proxy*.log|/tmp/tg-ws-proxy*.log)
+    /var/log/tg-ws-proxy*.log | /tmp/tg-ws-proxy*.log)
       if [ -f "$f" ]; then
         run rm -f "$f"
         ok "Removed log file: $f"

@@ -34,18 +34,24 @@ find_firewall_rule_index() {
   local idx
 
   idx="$(
-    uci show firewall 2>/dev/null | \
-      sed -n "s/^firewall\\.\\@rule\\[\\([0-9]\\+\\)\\]\\.name='${FIREWALL_RULE_NAME}'$/\\1/p" | \
-      head -n1
+    uci show firewall 2>/dev/null \
+      | sed -n "s/^firewall\\.\\@rule\\[\\([0-9]\\+\\)\\]\\.name='${FIREWALL_RULE_NAME}'$/\\1/p" \
+      | head -n1
   )"
-  [ -n "$idx" ] && { echo "$idx"; return 0; }
+  [ -n "$idx" ] && {
+    echo "$idx"
+    return 0
+  }
 
   idx="$(
-    uci show firewall 2>/dev/null | \
-      sed -n "s/^firewall\\.\\@rule\\[\\([0-9]\\+\\)\\]\\.name='${LEGACY_FIREWALL_RULE_NAME}'$/\\1/p" | \
-      head -n1
+    uci show firewall 2>/dev/null \
+      | sed -n "s/^firewall\\.\\@rule\\[\\([0-9]\\+\\)\\]\\.name='${LEGACY_FIREWALL_RULE_NAME}'$/\\1/p" \
+      | head -n1
   )"
-  [ -n "$idx" ] && { echo "$idx"; return 0; }
+  [ -n "$idx" ] && {
+    echo "$idx"
+    return 0
+  }
 
   return 1
 }
