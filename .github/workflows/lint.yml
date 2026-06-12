@@ -26,6 +26,38 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: CRLF check (must be LF in repo)
+        run: |
+          set -e
+
+          CR="$(printf '\r')"
+
+          # Check common text files in this repo. CRLF can break diffs/log output
+          # and makes formatter output confusing.
+          files_with_crlf="$(
+            grep -IUlr "$CR" \
+              install.sh update.sh uninstall.sh \
+              files/lib/tg-ws-proxy-common.sh \
+              files/etc/init.d/tg-ws-proxy.in \
+              files/usr/bin/tg-ws-proxyctl \
+              files/usr/libexec/tg-ws-proxy/run.sh \
+              README.md \
+              .github/workflows/lint.yml \
+              .shellcheckrc \
+              .gitattributes \
+              2>/dev/null || true
+          )"
+
+          if [ -n "$files_with_crlf" ]; then
+            echo "CRLF line endings detected (expected LF only):"
+            echo "$files_with_crlf"
+            echo ""
+            echo "Fix hint:"
+            echo "  - Ensure .gitattributes enforces LF"
+            echo "  - Run: git add --renormalize . && git commit"
+            exit 1
+          fi
+
       - name: shellcheck (OpenWrt-oriented)
         run: |
           # Treat only "warning" and above as CI failures (ignore "info"/"style").
@@ -43,14 +75,6 @@ jobs:
         run: |
           set -e
 
-          # checkbashisms targets Debian /bin/sh (dash) portability.
-          # Our runtime is BusyBox ash on OpenWrt, where:
-          # - 'local' is supported
-          # - 'echo -e' is intentionally used for colored output
-          #
-          # We still want to fail on NEW/UNEXPECTED bashisms.
-          # So we filter known/intentional findings and fail if anything else remains.
-
           out="$(
             checkbashisms -f \
               install.sh update.sh uninstall.sh \
@@ -64,10 +88,6 @@ jobs:
             echo "$out"
           fi
 
-          # Allowlist patterns:
-          # - echo -e / unsafe echo warnings (we intentionally use it)
-          # - local (BusyBox ash extension)
-          # - missing shebang warning for sourced libraries (we now add shebang, but keep it anyway)
           filtered="$(printf '%s\n' "$out" | grep -vE \
             'echo -e|unsafe echo with backslash|local|does not appear to have a #! interpreter line' || true)"
 
@@ -78,11 +98,31 @@ jobs:
             exit 1
           fi
 
-      - name: shfmt (format check)
+      - name: shfmt (format gate; list-only)
         run: |
-          shfmt -d -i 2 -ci -bn \
-            install.sh update.sh uninstall.sh \
-            files/lib/tg-ws-proxy-common.sh \
-            files/etc/init.d/tg-ws-proxy.in \
-            files/usr/bin/tg-ws-proxyctl \
-            files/usr/libexec/tg-ws-proxy/run.sh
+          set -e
+
+          # List files that would change. This is more robust than printing diffs
+          # when CRLF or control characters mess up log output.
+          not_formatted="$(
+            shfmt -l -i 2 -ci -bn \
+              install.sh update.sh uninstall.sh \
+              files/lib/tg-ws-proxy-common.sh \
+              files/etc/init.d/tg-ws-proxy.in \
+              files/usr/bin/tg-ws-proxyctl \
+              files/usr/libexec/tg-ws-proxy/run.sh || true
+          )"
+
+          if [ -n "$not_formatted" ]; then
+            echo "shfmt would reformat the following files:"
+            echo "$not_formatted"
+            echo ""
+            echo "Fix hint (run locally):"
+            echo "  shfmt -w -i 2 -ci -bn \\"
+            echo "    install.sh update.sh uninstall.sh \\"
+            echo "    files/lib/tg-ws-proxy-common.sh \\"
+            echo "    files/etc/init.d/tg-ws-proxy.in \\"
+            echo "    files/usr/bin/tg-ws-proxyctl \\"
+            echo "    files/usr/libexec/tg-ws-proxy/run.sh"
+            exit 1
+          fi
