@@ -1,18 +1,16 @@
 #!/bin/sh
-# files/usr/bin/tg-ws-proxyctl
 #
-# Small helper utility to manage tg-ws-proxy service on OpenWrt.
+# tg-ws-proxyctl - small management helper for OpenWrt
 #
 # Commands:
-#   status  - show procd service status
+#   status  - show service status
 #   restart - restart service
 #   log     - follow log file
 #   stats   - print last "stats:" line from the log
-#   link    - print Telegram client link (dd-secret or ee-secret if FakeTLS is enabled)
+#   link    - print Telegram tg:// link (dd-secret or ee-secret if FakeTLS enabled)
 #
 set -eu
 
-# Load shared helpers
 if [ -f /usr/lib/tg-ws-proxy-common.sh ]; then
   # shellcheck disable=SC1091
   . /usr/lib/tg-ws-proxy-common.sh
@@ -21,7 +19,6 @@ else
   exit 1
 fi
 
-# Load configuration
 if [ -f /etc/tg-ws-proxy.env ]; then
   # shellcheck disable=SC1091
   . /etc/tg-ws-proxy.env

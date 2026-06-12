@@ -1,0 +1,44 @@
+name: lint
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  shell-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install linters
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck shfmt devscripts
+
+      - name: shellcheck (POSIX sh)
+        run: |
+          shellcheck -x -s sh \
+            install.sh update.sh uninstall.sh \
+            files/lib/tg-ws-proxy-common.sh \
+            files/etc/init.d/tg-ws-proxy.in \
+            files/usr/bin/tg-ws-proxyctl \
+            files/usr/libexec/tg-ws-proxy/run.sh
+
+      - name: checkbashisms (no bash-only syntax)
+        run: |
+          checkbashisms -f \
+            install.sh update.sh uninstall.sh \
+            files/lib/tg-ws-proxy-common.sh \
+            files/etc/init.d/tg-ws-proxy.in \
+            files/usr/bin/tg-ws-proxyctl \
+            files/usr/libexec/tg-ws-proxy/run.sh
+
+      - name: shfmt (format check)
+        run: |
+          shfmt -d -i 2 -ci -bn \
+            install.sh update.sh uninstall.sh \
+            files/lib/tg-ws-proxy-common.sh \
+            files/etc/init.d/tg-ws-proxy.in \
+            files/usr/bin/tg-ws-proxyctl \
+            files/usr/libexec/tg-ws-proxy/run.sh

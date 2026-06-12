@@ -1,0 +1,3 @@
+# ShellCheck configuration for this repository
+shell=sh
+disable=SC1090,SC1091

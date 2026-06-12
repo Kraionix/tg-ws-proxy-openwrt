@@ -1,10 +1,13 @@
 #!/bin/sh /etc/rc.common
 #
 # OpenWrt procd init script for tg-ws-proxy.
-# - Runs the proxy via /usr/libexec/tg-ws-proxy/run.sh as an unprivileged user.
-# - Ensures the log file exists and has correct ownership.
-# - Keeps a firewall4 (fw4) DROP-from-WAN rule in sync with TGWS_PORT on service start.
-# - Forces Python bytecode cache into RAM (tmpfs) to reduce writes to flash.
+#
+# - Runs /usr/libexec/tg-ws-proxy/run.sh as user/group tgproxy
+# - Keeps Python bytecode cache in RAM (tmpfs) to reduce flash/overlay writes
+# - Ensures log file exists and has correct ownership
+# - Syncs a firewall4 (fw4) WAN->DROP rule port with TGWS_PORT at start
+# - Migrates legacy firewall rule name to a unique new name
+# - Adds procd reload triggers for UCI commits (firewall, network)
 #
 USE_PROCD=1
 START=95
@@ -12,7 +15,12 @@ STOP=10
 
 ENV_FILE="/etc/tg-ws-proxy.env"
 DEFAULT_LOG_FILE="/var/log/tg-ws-proxy.log"
-FIREWALL_RULE_NAME="Block tg-ws-proxy from WAN"
+
+# Unique rule name to avoid collisions with other configs
+FIREWALL_RULE_NAME="tg-ws-proxy: drop-wan"
+
+# Legacy name used by older versions of this repo (migration)
+LEGACY_FIREWALL_RULE_NAME="Block tg-ws-proxy from WAN"
 
 load_env() {
   [ -f "$ENV_FILE" ] || return 1
@@ -21,30 +29,51 @@ load_env() {
   return 0
 }
 
-sync_firewall_rule() {
-  # Sync firewall rule dest_port with TGWS_PORT at service start.
-  # If the rule does not exist, do nothing (install.sh creates it).
-  command -v uci >/dev/null 2>&1 || return 0
-  [ -n "${TGWS_PORT:-}" ] || return 0
+find_firewall_rule_index() {
+  # Prefer new name, fallback to legacy name.
+  local idx
 
-  local idx cur
   idx="$(
     uci show firewall 2>/dev/null | \
       sed -n "s/^firewall\\.\\@rule\\[\\([0-9]\\+\\)\\]\\.name='${FIREWALL_RULE_NAME}'$/\\1/p" | \
       head -n1
   )"
+  [ -n "$idx" ] && { echo "$idx"; return 0; }
+
+  idx="$(
+    uci show firewall 2>/dev/null | \
+      sed -n "s/^firewall\\.\\@rule\\[\\([0-9]\\+\\)\\]\\.name='${LEGACY_FIREWALL_RULE_NAME}'$/\\1/p" | \
+      head -n1
+  )"
+  [ -n "$idx" ] && { echo "$idx"; return 0; }
+
+  return 1
+}
+
+sync_firewall_rule() {
+  # Sync dest_port in the fw4 rule with TGWS_PORT.
+  # If the rule is missing, do nothing here (install.sh/update.sh create it).
+  command -v uci >/dev/null 2>&1 || return 0
+  [ -n "${TGWS_PORT:-}" ] || return 0
+
+  local idx cur
+  idx="$(find_firewall_rule_index 2>/dev/null || true)"
   [ -n "$idx" ] || return 0
+
+  # Migrate legacy rule name -> new rule name
+  uci set firewall.@rule["$idx"].name="$FIREWALL_RULE_NAME"
 
   cur="$(uci get firewall.@rule["$idx"].dest_port 2>/dev/null || echo "")"
   if [ "$cur" != "$TGWS_PORT" ]; then
     uci set firewall.@rule["$idx"].dest_port="$TGWS_PORT"
-    uci commit firewall
-    /etc/init.d/firewall reload >/dev/null 2>&1 || true
   fi
+
+  uci commit firewall
+  /etc/init.d/firewall reload >/dev/null 2>&1 || true
 }
 
 ensure_log_file() {
-  # Create the log file and directory if needed, and set ownership to tgproxy.
+  # Create log directory and file, then set ownership to tgproxy.
   local log_file dir
   log_file="${TGWS_LOG_FILE:-$DEFAULT_LOG_FILE}"
   dir="$(dirname "$log_file")"
@@ -54,8 +83,14 @@ ensure_log_file() {
   chown tgproxy:tgproxy "$log_file" 2>/dev/null || true
 }
 
+service_triggers() {
+  # Reload on UCI commits of these configs.
+  # This is a safe default: reload_service restarts the process and re-syncs fw rule/log perms.
+  procd_add_reload_trigger firewall network
+}
+
 boot() {
-  # Create the log file once at boot (respecting TGWS_LOG_FILE from ENV_FILE).
+  # Create the log file once at boot (respecting TGWS_LOG_FILE).
   load_env || return 0
   ensure_log_file
 }
@@ -73,17 +108,17 @@ start_service() {
   procd_set_param user tgproxy
   procd_set_param group tgproxy
 
-  # Keep Python bytecode cache in RAM (tmpfs) instead of flash/overlay.
+  # Bytecode cache in RAM instead of flash/overlay
   procd_set_param env PYTHONPYCACHEPREFIX=/tmp/tg-ws-proxy-pycache
 
-  # Track these files as instance state inputs (useful for diagnostics/reload).
+  # Track these files as instance state inputs (useful for diagnostics)
   procd_set_param file "$ENV_FILE" /usr/libexec/tg-ws-proxy/run.sh
 
   procd_close_instance
 }
 
 reload_service() {
-  # Simple reload strategy: restart the service.
+  # Keep reload simple and robust: restart the service.
   stop
   start
 }

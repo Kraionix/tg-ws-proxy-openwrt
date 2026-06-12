@@ -1,10 +1,10 @@
 #!/bin/sh
-# files/usr/libexec/tg-ws-proxy/run.sh
 #
-# procd service runner for tg-ws-proxy.
+# tg-ws-proxy procd runner
+#
 # - Sources /etc/tg-ws-proxy.env
-# - Validates config values
-# - Converts env vars to tg_ws_proxy.py CLI flags
+# - Validates TGWS_HOST / TGWS_PORT / TGWS_SECRET
+# - Translates env vars into tg_ws_proxy.py CLI flags
 # - Executes upstream tg_ws_proxy.py
 #
 set -eu
@@ -45,14 +45,14 @@ is_true() {
 }
 
 validate_port() {
-  # Must be an integer in range 1..65535
+  # Must be an integer in range 1..65535.
   local p="${1:-}"
   echo "$p" | grep -Eq '^[0-9]+$' || { echo "Error: TGWS_PORT must be a number (1..65535)" >&2; exit 1; }
   [ "$p" -ge 1 ] && [ "$p" -le 65535 ] || { echo "Error: TGWS_PORT is out of range (1..65535)" >&2; exit 1; }
 }
 
 validate_host() {
-  # Allow typical bind address formats: IPv4/IPv6/hostname/0.0.0.0
+  # Allow common bind formats: IPv4/IPv6/hostname/0.0.0.0
   local h="${1:-}"
   [ -n "$h" ] || { echo "Error: TGWS_HOST is empty" >&2; exit 1; }
   echo "$h" | grep -q '[[:space:]]' && { echo "Error: TGWS_HOST contains whitespace" >&2; exit 1; }
@@ -62,7 +62,7 @@ validate_host() {
 validate_host "$TGWS_HOST"
 validate_port "$TGWS_PORT"
 
-# Validate secret: exactly 32 hex chars
+# Validate secret: exactly 32 hex chars.
 if [ -z "${TGWS_SECRET:-}" ] || [ "$TGWS_SECRET" = "PLACEHOLDER_SECRET" ] || ! echo "$TGWS_SECRET" | grep -Eq '^[0-9a-fA-F]{32}$'; then
   echo "Error: TGWS_SECRET is missing or invalid (must be 32 hex characters)." >&2
   exit 1
@@ -106,7 +106,7 @@ if [ -n "$TGWS_FAKE_TLS_DOMAIN" ]; then
   set -- "$@" --fake-tls-domain "$TGWS_FAKE_TLS_DOMAIN"
 fi
 
-# PROXY protocol v1 (for nginx/haproxy with proxy_protocol enabled)
+# PROXY protocol v1
 if is_true "$TGWS_PROXY_PROTOCOL"; then
   set -- "$@" --proxy-protocol
 fi

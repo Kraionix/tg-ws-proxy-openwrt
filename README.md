@@ -1,30 +1,35 @@
 # tg-ws-proxy for OpenWrt (25.12+, apk)
 
-Automated deployment, update, recovery, and removal of `tg-ws-proxy`
-on an OpenWrt router.
+A small deployment toolkit to install, update, manage, and remove
+ on OpenWrt 25.12+ (apk).
 
 ## Features
-- Runs the proxy as an unprivileged user `tgproxy` (via shadow utils).
-- Automatic restart via `procd` (`respawn`).
-- Log file is created and gets correct permissions using `TGWS_LOG_FILE`.
-- Protection from external connections via firewall4 (fw4 / nftables):
-  a **DROP from WAN** rule is kept in sync with the current `TGWS_PORT` at service start.
-- Idempotent installation (safe to run multiple times).
-- Full removal of all components (optionally keep configuration).
-- `tg-ws-proxyctl` helper utility to manage the service and generate Telegram links
-  (supports `dd-secret` and `ee-secret` / FakeTLS).
+- Runs the proxy as an unprivileged user `tgproxy` (via shadow split packages).
+- procd supervision (`respawn`).
+- procd reload triggers on UCI commits for `firewall` and `network` (reload = restart).
+- Log file is created with correct ownership (respects `TGWS_LOG_FILE`).
+- firewall4 (fw4 / nftables) safety for a **local** proxy:
+  - a WAN->DROP rule is created for `TGWS_PORT`,
+  - rule name is unique to reduce collisions,
+  - legacy rule name is migrated automatically,
+  - rule port is synced on service start.
+- Idempotent install (safe to run multiple times).
+- Full uninstall (optionally keep config).
+- `tg-ws-proxyctl` helper utility:
+  - service status/restart/log/stats,
+  - generates Telegram client links (supports `dd-secret` and `ee-secret` / FakeTLS).
+- Upstream pinning: lock upstream to a tag/commit/branch via `TGWS_GIT_REF`.
 
 ## Requirements
 - OpenWrt **25.12 or newer** (package manager: **apk**).
-- Internet access to install packages and clone the upstream `tg-ws-proxy` repository.
-- Enough free overlay space (git clone + pip).
+- Internet access to install packages and clone upstream.
+- Enough overlay space (git clone + pip).
 
 ## Quick install
 1. Install git (if missing):
    ```sh
    apk -U add git
    ```
-   (On OpenWrt 25.12+, the recommended pattern is `apk -U add ...`.)
 
 2. Clone this repository:
    ```sh
@@ -37,31 +42,42 @@ on an OpenWrt router.
    chmod +x install.sh
    ./install.sh
    ```
-   On the first run it will create `/etc/tg-ws-proxy.env` with a random secret.
 
-   You can provide your own secret via an environment variable:
+   On first run it will create `/etc/tg-ws-proxy.env` with a random secret.
+
+   You can provide your own secret:
    ```sh
-   TGWS_SECRET=your_secret ./install.sh
+   TGWS_SECRET=your_32_hex_secret ./install.sh
    ```
 
-After installation, you will get a Telegram client link.
+## Getting the Telegram link
+For security/UX reasons, `install.sh` does **not** print the Telegram link automatically.
+After install, run:
 
-### Important note about WAN
-This is a **local** proxy by default: the installer creates a firewall4 rule that blocks incoming connections
-to the proxy port from the `wan` zone (DROP).
+```sh
+tg-ws-proxyctl link
+```
 
-If you change `TGWS_PORT` and simply run `service tg-ws-proxy restart`, the init script will automatically
-sync the firewall rule `dest_port` with the current port.
+(That link contains the secret as part of the URL, as expected by Telegram.)
+
+## WAN note (this is a local proxy by default)
+This toolkit creates a firewall4 rule that **drops TCP traffic from `wan` to `TGWS_PORT`**.
+
+If you change `TGWS_PORT` and run:
+```sh
+service tg-ws-proxy restart
+```
+the init script will sync the firewall rule port automatically.
 
 ## Management
-`tg-ws-proxyctl status` – show service status.  
-`tg-ws-proxyctl restart` – restart the service.  
-`tg-ws-proxyctl log` – follow log in real-time.  
-`tg-ws-proxyctl stats` – show last stats entry from the log.  
-`tg-ws-proxyctl link` – print the current Telegram client link.
+- `tg-ws-proxyctl status` – service status
+- `tg-ws-proxyctl restart` – restart
+- `tg-ws-proxyctl log` – follow log
+- `tg-ws-proxyctl stats` – last stats line
+- `tg-ws-proxyctl link` – print Telegram link
 
 ## Configuration
-Settings are stored in `/etc/tg-ws-proxy.env`.
+Configuration is stored in `/etc/tg-ws-proxy.env`.
 
 ### Environment variables
 
@@ -73,8 +89,8 @@ Settings are stored in `/etc/tg-ws-proxy.env`.
 | `TGWS_DC_IPS` | `DC:IP` pairs separated by spaces (optional) | `2:149.154.167.220 4:149.154.167.220` |
 | `TGWS_LOG_FILE` | Log file path | `/var/log/tg-ws-proxy.log` |
 | `TGWS_LOG_MAX_MB` | Max log size (MB) | `5` |
-| `TGWS_LOG_BACKUPS` | Number of rotated log files | `2` |
-| `TGWS_VERBOSE` | Enable verbose logging (`-v`) | `false` |
+| `TGWS_LOG_BACKUPS` | Number of rotated files | `2` |
+| `TGWS_VERBOSE` | Enable verbose (`-v`) | `false` |
 | `TGWS_BUF_KB` | `--buf-kb` (socket buffer) | `256` |
 | `TGWS_POOL_SIZE` | `--pool-size` | `4` |
 | `TGWS_NO_CFPROXY` | `--no-cfproxy` disables CF fallback | `false` |
@@ -82,44 +98,52 @@ Settings are stored in `/etc/tg-ws-proxy.env`.
 | `TGWS_CFPROXY_WORKER_DOMAIN` | `--cfproxy-worker-domain` (space-separated list) | empty |
 | `TGWS_FAKE_TLS_DOMAIN` | `--fake-tls-domain` (enables `ee-secret`) | empty |
 | `TGWS_PROXY_PROTOCOL` | `--proxy-protocol` (v1) | `false` |
+| `TGWS_GIT_REF` | Upstream pin (tag/commit/branch). Empty = upstream HEAD | empty |
 
-After changing the configuration:
+After changing config:
 ```sh
 tg-ws-proxyctl restart
 ```
 
 ## Update
-To update `tg-ws-proxy` and service files, run from the repository directory:
+Run from this repo directory:
 ```sh
 ./update.sh
 ```
-This script updates the upstream source code, the Python package, system files, and the firewall rule.
-If new variables appear in `.env.example`, the script will warn you.
+
+If `TGWS_GIT_REF` is set, updates will keep the proxy pinned to that revision.
 
 ## Recovery after sysupgrade
 This project backs up **only** `/etc/tg-ws-proxy.env` via `/etc/sysupgrade.conf`.
 
-After `sysupgrade -k` the config will be restored, but packages/sources/system files must be installed again —
-so simply re-run `install.sh` (it is idempotent and will not overwrite your config).
+After `sysupgrade -k`, re-run:
+```sh
+./install.sh
+```
+It will reinstall packages/files while keeping your existing config.
 
-## Important: do not use `apk upgrade` as a way to “upgrade OpenWrt”
-OpenWrt is upgraded via **firmware images** (image-based) using `sysupgrade` (or Attended Sysupgrade / `owut`),
-not by doing a full distro-style package upgrade.
+## Important: do not use `apk upgrade` as a way to upgrade OpenWrt
+OpenWrt is upgraded via **firmware images** (`sysupgrade`, Attended Sysupgrade, `owut`), not via a full
+distro-style package upgrade.
 
-Why:
-- `apk upgrade` (and previously `opkg upgrade`) **does not upgrade OpenWrt itself** and is not a replacement for sysupgrade.
-- `sysupgrade` backs up selected configs, replaces the root filesystem with a new OpenWrt version, and restores configs.
-  That is the recommended way to keep the system consistent.
+- `apk upgrade` does not upgrade OpenWrt itself and does not replace sysupgrade.
+- Mass-upgrading all packages can increase the chance of mismatches and conflicts.
 
-Practical rule of thumb:
-- Upgrading a few packages you installed yourself (luci-app-*, utilities) is usually fine.
-- Doing a “mass” `apk upgrade` of everything without a clear need can increase the risk of version mismatches and conflicts,
-  and it does not replace sysupgrade anyway.
+Rule of thumb:
+- Updating a few packages you installed yourself is usually fine.
+- Use sysupgrade/ASU/owut to upgrade OpenWrt.
+
+## CI / quality (lint gate)
+This repo includes a GitHub Actions workflow that checks:
+- shellcheck (POSIX sh),
+- checkbashisms (bash-only syntax),
+- shfmt (format).
 
 ## Uninstall
 ```sh
 ./uninstall.sh [--dry-run] [--keep-config] [--force]
 ```
-- `--dry-run` – print planned actions without executing them.
-- `--keep-config` – keep `/etc/tg-ws-proxy.env`.
-- `--force` – remove without confirmation.
+- `--dry-run` – show planned actions without executing them
+- `--keep-config` – keep `/etc/tg-ws-proxy.env`
+- `--force` – remove without confirmation
+```

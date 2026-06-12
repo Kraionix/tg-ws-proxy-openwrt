@@ -1,18 +1,19 @@
-# files/lib/tg-ws-proxy-common.sh
+# tg-ws-proxy-common.sh
 #
-# Shared helper library for tg-ws-proxy OpenWrt scripts.
+# Common helper library for tg-ws-proxy OpenWrt scripts.
+#
 # Source it with:
 #   . /path/to/tg-ws-proxy-common.sh
 #
 # Provides:
-# - get_lan_ip(): best-effort LAN IP detection for generating Telegram links.
-# - tgws_lock()/tgws_unlock(): global lock to prevent concurrent install/update/uninstall runs.
-# - log/ok/warn/err: colored logging helpers.
+# - get_lan_ip(): best-effort LAN IP detection (for tg:// link generation)
+# - tgws_lock()/tgws_unlock(): global lock to prevent concurrent install/update/uninstall
+# - require_cmd(): fail fast if a required command is missing (helps with apk split packages)
+# - log/ok/warn/err: colored logging helpers
 #
 
 TGWS_LOCKFILE="/var/lock/tg-ws-proxy.lock"
 
-# Best-effort LAN IP detection (tries UCI, then common interfaces).
 get_lan_ip() {
   local ip
   ip=$(uci get network.lan.ipaddr 2>/dev/null) && [ -n "$ip" ] && { echo "$ip"; return 0; }
@@ -21,7 +22,6 @@ get_lan_ip() {
   return 1
 }
 
-# Global inter-process lock (prevents running install/update/uninstall concurrently).
 tgws_lock() {
   mkdir -p /var/lock 2>/dev/null || true
 
@@ -33,18 +33,23 @@ tgws_lock() {
   fi
 
   lock "$TGWS_LOCKFILE"
-  # Always release lock on exit/signals
   trap 'tgws_unlock' EXIT INT TERM
 }
 
 tgws_unlock() {
-  # lock -u is provided by /lib/functions/lock.sh
   if command -v lock >/dev/null 2>&1; then
     lock -u "$TGWS_LOCKFILE" 2>/dev/null || true
   fi
 }
 
-# Colored logging helpers
+require_cmd() {
+  # Usage: require_cmd <cmd> [hint...]
+  # Example: require_cmd pgrep "Install procps-ng-pgrep"
+  local c="${1:-}"
+  shift || true
+  command -v "$c" >/dev/null 2>&1 || err "Missing command '$c'. ${*:-}"
+}
+
 INFO='\033[1;34m'
 OK='\033[1;32m'
 WARN='\033[1;33m'
