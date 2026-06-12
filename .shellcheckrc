@@ -1,3 +1,13 @@
-# ShellCheck configuration for this repository
+# ShellCheck configuration for this repository.
+# Target runtime shell is BusyBox ash on OpenWrt, not strict POSIX /bin/sh (dash).
+
 shell=sh
+external-sources=false
+
+# SC1090/SC1091: We intentionally source files that may not exist in CI (e.g. /lib/functions/lock.sh on OpenWrt),
+# and also source paths can be non-constant.
 disable=SC1090,SC1091
+
+# SC3043: BusyBox ash supports 'local', even though it's not POSIX.
+# SC3037: We intentionally use 'echo -e' for colored output on OpenWrt/BusyBox.
+disable=SC3043,SC3037
