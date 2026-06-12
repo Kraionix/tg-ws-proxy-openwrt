@@ -1,0 +1,67 @@
+#!/bin/sh
+# files/usr/bin/tg-ws-proxyctl
+#
+# Small helper utility to manage tg-ws-proxy service on OpenWrt.
+#
+# Commands:
+#   status  - show procd service status
+#   restart - restart service
+#   log     - follow log file
+#   stats   - print last "stats:" line from the log
+#   link    - print Telegram client link (dd-secret or ee-secret if FakeTLS is enabled)
+#
+set -eu
+
+# Load shared helpers
+if [ -f /usr/lib/tg-ws-proxy-common.sh ]; then
+  # shellcheck disable=SC1091
+  . /usr/lib/tg-ws-proxy-common.sh
+else
+  echo "Error: missing /usr/lib/tg-ws-proxy-common.sh" >&2
+  exit 1
+fi
+
+# Load configuration
+if [ -f /etc/tg-ws-proxy.env ]; then
+  # shellcheck disable=SC1091
+  . /etc/tg-ws-proxy.env
+else
+  echo "Error: missing /etc/tg-ws-proxy.env" >&2
+  exit 1
+fi
+
+case "${1:-}" in
+  status)
+    /etc/init.d/tg-ws-proxy status || true
+    ;;
+  restart)
+    /etc/init.d/tg-ws-proxy restart
+    ;;
+  log)
+    tail -f "$TGWS_LOG_FILE"
+    ;;
+  stats)
+    grep -a "stats:" "$TGWS_LOG_FILE" | tail -n 1 || true
+    ;;
+  link)
+    HOST="$TGWS_HOST"
+    if [ "$HOST" = "0.0.0.0" ]; then
+      HOST=$(get_lan_ip) || {
+        echo "Error: unable to detect LAN IP. Please set TGWS_HOST explicitly." >&2
+        exit 1
+      }
+    fi
+
+    # Fake TLS (ee-secret) if a domain is set
+    if [ -n "${TGWS_FAKE_TLS_DOMAIN:-}" ]; then
+      DOMAIN_HEX=$(printf '%s' "$TGWS_FAKE_TLS_DOMAIN" | od -An -tx1 | tr -d ' \n')
+      echo "tg://proxy?server=$HOST&port=$TGWS_PORT&secret=ee${TGWS_SECRET}${DOMAIN_HEX}"
+    else
+      echo "tg://proxy?server=$HOST&port=$TGWS_PORT&secret=dd$TGWS_SECRET"
+    fi
+    ;;
+  *)
+    echo "usage: tg-ws-proxyctl {status|restart|log|stats|link}" >&2
+    exit 2
+    ;;
+esac

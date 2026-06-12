@@ -1,0 +1,89 @@
+#!/bin/sh /etc/rc.common
+#
+# OpenWrt procd init script for tg-ws-proxy.
+# - Runs the proxy via /usr/libexec/tg-ws-proxy/run.sh as an unprivileged user.
+# - Ensures the log file exists and has correct ownership.
+# - Keeps a firewall4 (fw4) DROP-from-WAN rule in sync with TGWS_PORT on service start.
+# - Forces Python bytecode cache into RAM (tmpfs) to reduce writes to flash.
+#
+USE_PROCD=1
+START=95
+STOP=10
+
+ENV_FILE="/etc/tg-ws-proxy.env"
+DEFAULT_LOG_FILE="/var/log/tg-ws-proxy.log"
+FIREWALL_RULE_NAME="Block tg-ws-proxy from WAN"
+
+load_env() {
+  [ -f "$ENV_FILE" ] || return 1
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  return 0
+}
+
+sync_firewall_rule() {
+  # Sync firewall rule dest_port with TGWS_PORT at service start.
+  # If the rule does not exist, do nothing (install.sh creates it).
+  command -v uci >/dev/null 2>&1 || return 0
+  [ -n "${TGWS_PORT:-}" ] || return 0
+
+  local idx cur
+  idx="$(
+    uci show firewall 2>/dev/null | \
+      sed -n "s/^firewall\\.\\@rule\\[\\([0-9]\\+\\)\\]\\.name='${FIREWALL_RULE_NAME}'$/\\1/p" | \
+      head -n1
+  )"
+  [ -n "$idx" ] || return 0
+
+  cur="$(uci get firewall.@rule["$idx"].dest_port 2>/dev/null || echo "")"
+  if [ "$cur" != "$TGWS_PORT" ]; then
+    uci set firewall.@rule["$idx"].dest_port="$TGWS_PORT"
+    uci commit firewall
+    /etc/init.d/firewall reload >/dev/null 2>&1 || true
+  fi
+}
+
+ensure_log_file() {
+  # Create the log file and directory if needed, and set ownership to tgproxy.
+  local log_file dir
+  log_file="${TGWS_LOG_FILE:-$DEFAULT_LOG_FILE}"
+  dir="$(dirname "$log_file")"
+
+  [ -d "$dir" ] || mkdir -p "$dir"
+  touch "$log_file"
+  chown tgproxy:tgproxy "$log_file" 2>/dev/null || true
+}
+
+boot() {
+  # Create the log file once at boot (respecting TGWS_LOG_FILE from ENV_FILE).
+  load_env || return 0
+  ensure_log_file
+}
+
+start_service() {
+  load_env || return 1
+  sync_firewall_rule
+  ensure_log_file
+
+  procd_open_instance
+  procd_set_param command /usr/libexec/tg-ws-proxy/run.sh
+  procd_set_param respawn 3600 5 5
+  procd_set_param stdout 0
+  procd_set_param stderr 1
+  procd_set_param user tgproxy
+  procd_set_param group tgproxy
+
+  # Keep Python bytecode cache in RAM (tmpfs) instead of flash/overlay.
+  procd_set_param env PYTHONPYCACHEPREFIX=/tmp/tg-ws-proxy-pycache
+
+  # Track these files as instance state inputs (useful for diagnostics/reload).
+  procd_set_param file "$ENV_FILE" /usr/libexec/tg-ws-proxy/run.sh
+
+  procd_close_instance
+}
+
+reload_service() {
+  # Simple reload strategy: restart the service.
+  stop
+  start
+}

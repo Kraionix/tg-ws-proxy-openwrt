@@ -1,0 +1,7 @@
+# Exclude backups and temporary editor files
+*.bak
+*.swp
+*.swo
+
+# Exclude the real config file that contains secrets (do not commit)
+files/etc/tg-ws-proxy.env
