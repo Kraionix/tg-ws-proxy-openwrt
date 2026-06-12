@@ -139,6 +139,21 @@ This repo includes a GitHub Actions workflow that checks:
 - checkbashisms (bash-only syntax),
 - shfmt (format).
 
+## Local development (pre-commit)
+This repo ships a local `pre-commit` setup to auto-format shell scripts with `shfmt`
+before committing (and fix trivial whitespace issues).
+
+One-time setup:
+```sh
+python3 -m pip install --user pre-commit
+pre-commit install --install-hooks
+```
+
+Run on demand:
+```sh
+pre-commit run --all-files
+```
+
 ## Uninstall
 ```sh
 ./uninstall.sh [--dry-run] [--keep-config] [--force]

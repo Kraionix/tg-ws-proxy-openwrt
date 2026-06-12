@@ -1,0 +1,30 @@
+# Local developer tooling (does not affect runtime on OpenWrt).
+#
+# One-time setup:
+#   python3 -m pip install --user pre-commit
+#   pre-commit install --install-hooks
+#
+# Run on demand:
+#   pre-commit run --all-files
+#
+# shfmt is pinned and forced to POSIX mode to match the project's /bin/sh target.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+
+  - repo: https://github.com/maxwinterstein/shfmt-py
+    rev: v3.13.0.1
+    hooks:
+      - id: shfmt
+        name: shfmt (POSIX, 2-space indent)
+        args: ["-w", "-ln", "posix", "-i", "2", "-ci", "-bn"]
+        files: >-
+          ^(install\.sh|update\.sh|uninstall\.sh|
+          files/lib/tg-ws-proxy-common\.sh|
+          files/etc/init\.d/tg-ws-proxy\.in|
+          files/usr/bin/tg-ws-proxyctl|
+          files/usr/libexec/tg-ws-proxy/run\.sh)$

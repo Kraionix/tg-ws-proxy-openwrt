@@ -21,7 +21,27 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             git ca-certificates \
-            shellcheck shfmt devscripts
+            shellcheck devscripts \
+            curl
+
+          # Pin shfmt to the same major/minor as local pre-commit.
+          SHFMT_VERSION="v3.13.0"
+
+          arch="$(dpkg --print-architecture 2>/dev/null || echo amd64)"
+          case "$arch" in
+            amd64) shfmt_arch="amd64" ;;
+            arm64) shfmt_arch="arm64" ;;
+            *)
+              echo "Unsupported architecture for shfmt: $arch" >&2
+              exit 1
+              ;;
+          esac
+
+          curl -fsSL -o /usr/local/bin/shfmt \
+            "https://github.com/mvdan/sh/releases/download/${SHFMT_VERSION}/shfmt_${SHFMT_VERSION}_linux_${shfmt_arch}"
+          chmod +x /usr/local/bin/shfmt
+
+          shfmt --version
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -105,7 +125,7 @@ jobs:
           # List files that would change. This is more robust than printing diffs
           # when CRLF or control characters mess up log output.
           not_formatted="$(
-            shfmt -l -i 2 -ci -bn \
+            shfmt -l -i 2 -ci -bn -ln posix \
               install.sh update.sh uninstall.sh \
               files/lib/tg-ws-proxy-common.sh \
               files/etc/init.d/tg-ws-proxy.in \
@@ -118,7 +138,9 @@ jobs:
             echo "$not_formatted"
             echo ""
             echo "Fix hint (run locally):"
-            echo "  shfmt -w -i 2 -ci -bn \\"
+            echo "  pre-commit run --all-files"
+            echo "  # or directly:"
+            echo "  shfmt -w -i 2 -ci -bn -ln posix \\"
             echo "    install.sh update.sh uninstall.sh \\"
             echo "    files/lib/tg-ws-proxy-common.sh \\"
             echo "    files/etc/init.d/tg-ws-proxy.in \\"
