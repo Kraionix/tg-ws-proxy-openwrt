@@ -7,35 +7,45 @@ on:
 jobs:
   shell-lint:
     runs-on: ubuntu-24.04
+    container:
+      image: debian:bookworm-slim
 
     steps:
+      - name: Install tooling
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git ca-certificates \
+            shellcheck shfmt devscripts
+
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install linters
+      - name: shellcheck (OpenWrt-oriented)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y shellcheck shfmt devscripts
-
-      - name: shellcheck (OpenWrt-oriented sh)
-        run: |
-          shellcheck -s sh \
+          # Ignore info/style (e.g. SC2015) by using severity=warning.
+          shellcheck -S warning -s sh \
             install.sh update.sh uninstall.sh \
             files/lib/tg-ws-proxy-common.sh \
-            files/etc/init.d/tg-ws-proxy.in \
             files/usr/bin/tg-ws-proxyctl \
             files/usr/libexec/tg-ws-proxy/run.sh
+
+          # OpenWrt init scripts intentionally set variables consumed by /etc/rc.common.
+          # Suppress "unused variable" warnings for this file only.
+          shellcheck -S warning -s sh -e SC2034 \
+            files/etc/init.d/tg-ws-proxy.in
 
       - name: checkbashisms (gate with allowlist for BusyBox ash)
         run: |
           set -e
 
-          # checkbashisms is designed for Debian /bin/sh (dash) portability checks.
-          # Our runtime is BusyBox ash on OpenWrt, where 'local' is supported,
-          # and we intentionally use 'echo -e' for colored output.
+          # checkbashisms targets Debian /bin/sh (dash) portability checks.
+          # Our runtime is BusyBox ash on OpenWrt, where:
+          # - 'local' is supported
+          # - 'echo -e' is intentionally used for colored output
           #
-          # We still want a "gate" that fails on NEW/UNEXPECTED bashisms.
-          # So: run checkbashisms, then filter out known/intentional findings.
+          # We still want to fail on NEW/UNEXPECTED bashisms, so we filter out
+          # known/intentional patterns and fail if anything else remains.
 
           out="$(
             checkbashisms -f \
@@ -50,9 +60,6 @@ jobs:
             echo "$out"
           fi
 
-          # Allowlist patterns (intentional for OpenWrt BusyBox ash):
-          # - echo -e (and related "unsafe echo with backslash" warnings)
-          # - local (ash extension)
           filtered="$(printf '%s\n' "$out" | grep -vE 'echo -e|unsafe echo with backslash|local' || true)"
 
           if [ -n "$filtered" ]; then
