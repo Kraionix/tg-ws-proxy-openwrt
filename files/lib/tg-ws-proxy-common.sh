@@ -1,9 +1,10 @@
+#!/bin/sh
 # tg-ws-proxy-common.sh
 #
 # Common helper library for tg-ws-proxy OpenWrt scripts.
 #
-# Source it with:
-#   . /path/to/tg-ws-proxy-common.sh
+# This file is primarily meant to be sourced, but we keep a shebang to make
+# tools like checkbashisms treat it as a shell script.
 #
 # Provides:
 # - get_lan_ip(): best-effort LAN IP detection (for tg:// link generation)

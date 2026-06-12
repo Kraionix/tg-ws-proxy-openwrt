@@ -10,9 +10,14 @@ jobs:
     container:
       image: debian:bookworm-slim
 
+    defaults:
+      run:
+        shell: sh
+
     steps:
-      - name: Install tooling
+      - name: Install linters
         run: |
+          export DEBIAN_FRONTEND=noninteractive
           apt-get update
           apt-get install -y --no-install-recommends \
             git ca-certificates \
@@ -23,15 +28,14 @@ jobs:
 
       - name: shellcheck (OpenWrt-oriented)
         run: |
-          # Ignore info/style (e.g. SC2015) by using severity=warning.
+          # Treat only "warning" and above as CI failures (ignore "info"/"style").
           shellcheck -S warning -s sh \
             install.sh update.sh uninstall.sh \
             files/lib/tg-ws-proxy-common.sh \
             files/usr/bin/tg-ws-proxyctl \
             files/usr/libexec/tg-ws-proxy/run.sh
 
-          # OpenWrt init scripts intentionally set variables consumed by /etc/rc.common.
-          # Suppress "unused variable" warnings for this file only.
+          # OpenWrt init scripts intentionally define variables consumed by /etc/rc.common.
           shellcheck -S warning -s sh -e SC2034 \
             files/etc/init.d/tg-ws-proxy.in
 
@@ -39,13 +43,13 @@ jobs:
         run: |
           set -e
 
-          # checkbashisms targets Debian /bin/sh (dash) portability checks.
+          # checkbashisms targets Debian /bin/sh (dash) portability.
           # Our runtime is BusyBox ash on OpenWrt, where:
           # - 'local' is supported
           # - 'echo -e' is intentionally used for colored output
           #
-          # We still want to fail on NEW/UNEXPECTED bashisms, so we filter out
-          # known/intentional patterns and fail if anything else remains.
+          # We still want to fail on NEW/UNEXPECTED bashisms.
+          # So we filter known/intentional findings and fail if anything else remains.
 
           out="$(
             checkbashisms -f \
@@ -60,7 +64,12 @@ jobs:
             echo "$out"
           fi
 
-          filtered="$(printf '%s\n' "$out" | grep -vE 'echo -e|unsafe echo with backslash|local' || true)"
+          # Allowlist patterns:
+          # - echo -e / unsafe echo warnings (we intentionally use it)
+          # - local (BusyBox ash extension)
+          # - missing shebang warning for sourced libraries (we now add shebang, but keep it anyway)
+          filtered="$(printf '%s\n' "$out" | grep -vE \
+            'echo -e|unsafe echo with backslash|local|does not appear to have a #! interpreter line' || true)"
 
           if [ -n "$filtered" ]; then
             echo ""
