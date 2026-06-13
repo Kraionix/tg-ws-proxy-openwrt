@@ -10,6 +10,9 @@ phase_install() {
   docker cp "$REPO_ROOT/." "$CTR:/root/smoke/repo"
   docker cp "$SMOKE_DIR/config/env-test-defaults" "$CTR:/root/smoke/smoke.env"
 
+  # Normalize line endings to LF. BusyBox sh may choke on CRLF env files.
+  ctr_exec "tr -d '\r' </root/smoke/smoke.env >/root/smoke/smoke.env.lf && mv /root/smoke/smoke.env.lf /root/smoke/smoke.env"
+
   ctr_exec "cd /root/smoke/repo && chmod +x install.sh update.sh uninstall.sh"
 
   log "INSTALL: ensuring apk can reach repositories (apk update)..."

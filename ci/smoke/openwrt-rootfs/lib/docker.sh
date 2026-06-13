@@ -10,13 +10,14 @@ set -eu
 ctr_exec() {
   # Execute a command inside the container using a stable PATH.
   # Usage: ctr_exec "command"
-  docker exec "$CTR" sh -lc "PATH=/usr/sbin:/usr/bin:/sbin:/bin; $*"
+  # Do not use '-l' (login shell): it triggers /etc/profile and prints banners.
+  docker exec "$CTR" sh -c "PATH=/usr/sbin:/usr/bin:/sbin:/bin; $*"
 }
 
 ctr_capture() {
   # Capture stdout+stderr from a container command.
   # Usage: out="$(ctr_capture "command")"
-  docker exec "$CTR" sh -lc "PATH=/usr/sbin:/usr/bin:/sbin:/bin; $*" 2>&1
+  docker exec "$CTR" sh -c "PATH=/usr/sbin:/usr/bin:/sbin:/bin; $*" 2>&1
 }
 
 ctr_best_effort_to_file() {

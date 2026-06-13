@@ -10,6 +10,8 @@
 # - get_lan_ip(): best-effort LAN IP detection (for tg:// link generation)
 # - tgws_lock()/tgws_unlock(): global lock to prevent concurrent install/update/uninstall
 # - require_cmd(): fail fast if a required command is missing (helps with apk split packages)
+# - In minimal/container OpenWrt environments, /lib/functions/lock.sh may be missing.
+#   We provide a safe fallback lock implementation to keep scripts usable.
 # - log/ok/warn/err: colored logging helpers
 #
 
@@ -38,18 +40,32 @@ tgws_lock() {
   if [ -f /lib/functions/lock.sh ]; then
     # shellcheck disable=SC1091
     . /lib/functions/lock.sh
-  else
-    err "Missing /lib/functions/lock.sh (required for locking)."
+    lock "$TGWS_LOCKFILE"
+    trap 'tgws_unlock' EXIT INT TERM
+    return 0
   fi
 
-  lock "$TGWS_LOCKFILE"
-  trap 'tgws_unlock' EXIT INT TERM
+  # Fallback locking when OpenWrt lock helpers are not available (e.g. rootfs container).
+  # Use an atomic mkdir-based lock directory next to the lockfile path.
+  local lockdir
+  lockdir="${TGWS_LOCKFILE}.d"
+
+  if mkdir "$lockdir" 2>/dev/null; then
+    echo "$$" >"${lockdir}/pid" 2>/dev/null || true
+    trap 'tgws_unlock' EXIT INT TERM
+    return 0
+  fi
+
+  err "Another tg-ws-proxy operation is already running (lock: $TGWS_LOCKFILE)."
 }
 
 tgws_unlock() {
   if command -v lock >/dev/null 2>&1; then
     lock -u "$TGWS_LOCKFILE" 2>/dev/null || true
   fi
+
+  # Fallback lock cleanup (see tgws_lock()).
+  rm -rf "${TGWS_LOCKFILE}.d" 2>/dev/null || true
 }
 
 require_cmd() {
