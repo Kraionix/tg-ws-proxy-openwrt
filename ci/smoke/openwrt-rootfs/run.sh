@@ -19,6 +19,8 @@ REPO_ROOT="$(CDPATH= cd -- "$SMOKE_DIR/../../.." && pwd)"
 # shellcheck disable=SC1091
 . "$SMOKE_DIR/lib/docker.sh"
 # shellcheck disable=SC1091
+. "$SMOKE_DIR/lib/netfix.sh"
+# shellcheck disable=SC1091
 . "$SMOKE_DIR/lib/assert.sh"
 # shellcheck disable=SC1091
 . "$SMOKE_DIR/lib/uci_fw4.sh"

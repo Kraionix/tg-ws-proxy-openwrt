@@ -19,6 +19,9 @@ phase_install() {
   ctr_exec "/etc/init.d/firewall stop >/dev/null 2>&1 || true"
   ctr_exec "nft flush ruleset >/dev/null 2>&1 || true"
 
+  log "INSTALL: ensuring outbound network is usable (Docker fixup if needed)..."
+  ensure_outbound_network
+
   log "INSTALL: ensuring apk can reach repositories (apk update)..."
   # Retry to reduce flakiness from transient network/CDN issues.
   ctr_exec '

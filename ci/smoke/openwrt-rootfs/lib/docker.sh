@@ -14,6 +14,12 @@ ctr_exec() {
   docker exec "$CTR" sh -c "PATH=/usr/sbin:/usr/bin:/sbin:/bin; $*"
 }
 
+ctr_exec_stdin() {
+  # Execute a command inside the container while providing stdin.
+  # Usage: ctr_exec_stdin "cmd" <<'EOF' ... EOF
+  docker exec -i "$CTR" sh -c "PATH=/usr/sbin:/usr/bin:/sbin:/bin; $*"
+}
+
 ctr_capture() {
   # Capture stdout+stderr from a container command.
   # Usage: out="$(ctr_capture "command")"
