@@ -4,8 +4,30 @@ on:
   push:
   pull_request:
 
+# Hardening: least privilege for GITHUB_TOKEN.
+permissions:
+  contents: read
+
 jobs:
+  harden-actions:
+    name: Harden Actions (enforce SHA pinning)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Ensure SHA pinned actions
+        uses: zgosalvez/github-actions-ensure-sha-pinned-actions@ca46236c6ce584ae24bc6283ba8dcf4b3ec8a066 # v5.0.4
+        with:
+          # Empty allowlist = deny all (fail on any unpinned third-party action).
+          allowlist: ""
+          dry_run: "false"
+
   shell-lint:
+    name: Shell lint
+    needs: harden-actions
     runs-on: ubuntu-24.04
     container:
       image: debian:bookworm-slim
@@ -22,7 +44,7 @@ jobs:
           apt-get install -y --no-install-recommends \
             git ca-certificates \
             shellcheck devscripts \
-            curl
+            curl tar gzip
 
           # Pin shfmt to the same major/minor as local pre-commit.
           SHFMT_VERSION="v3.13.0"
@@ -40,11 +62,36 @@ jobs:
           curl -fsSL -o /usr/local/bin/shfmt \
             "https://github.com/mvdan/sh/releases/download/${SHFMT_VERSION}/shfmt_${SHFMT_VERSION}_linux_${shfmt_arch}"
           chmod +x /usr/local/bin/shfmt
-
           shfmt --version
 
+          # Install actionlint (pinned).
+          ACTIONLINT_VERSION="1.7.12"
+
+          case "$arch" in
+            amd64) actionlint_arch="amd64" ;;
+            arm64) actionlint_arch="arm64" ;;
+            *)
+              echo "Unsupported architecture for actionlint: $arch" >&2
+              exit 1
+              ;;
+          esac
+
+          tmp="$(mktemp -d)"
+          curl -fsSL -o "$tmp/actionlint.tar.gz" \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_${actionlint_arch}.tar.gz"
+          tar -xzf "$tmp/actionlint.tar.gz" -C "$tmp"
+          cp "$tmp/actionlint" /usr/local/bin/actionlint
+          chmod +x /usr/local/bin/actionlint
+          rm -rf "$tmp"
+
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: actionlint (GitHub Actions workflow lint)
+        run: |
+          actionlint -color
 
       - name: CRLF check (must be LF in repo)
         run: |
@@ -52,8 +99,6 @@ jobs:
 
           CR="$(printf '\r')"
 
-          # Check common text files in this repo. CRLF can break diffs/log output
-          # and makes formatter output confusing.
           files_with_crlf="$(
             grep -IUlr "$CR" \
               install.sh update.sh uninstall.sh \
@@ -80,14 +125,12 @@ jobs:
 
       - name: shellcheck (OpenWrt-oriented)
         run: |
-          # Treat only "warning" and above as CI failures (ignore "info"/"style").
           shellcheck -S warning -s sh \
             install.sh update.sh uninstall.sh \
             files/lib/tg-ws-proxy-common.sh \
             files/usr/bin/tg-ws-proxyctl \
             files/usr/libexec/tg-ws-proxy/run.sh
 
-          # OpenWrt init scripts intentionally define variables consumed by /etc/rc.common.
           shellcheck -S warning -s sh -e SC2034 \
             files/etc/init.d/tg-ws-proxy.in
 
@@ -122,8 +165,6 @@ jobs:
         run: |
           set -e
 
-          # List files that would change. This is more robust than printing diffs
-          # when CRLF or control characters mess up log output.
           not_formatted="$(
             shfmt -l -i 2 -ci -bn -ln posix \
               install.sh update.sh uninstall.sh \
@@ -139,12 +180,5 @@ jobs:
             echo ""
             echo "Fix hint (run locally):"
             echo "  pre-commit run --all-files"
-            echo "  # or directly:"
-            echo "  shfmt -w -i 2 -ci -bn -ln posix \\"
-            echo "    install.sh update.sh uninstall.sh \\"
-            echo "    files/lib/tg-ws-proxy-common.sh \\"
-            echo "    files/etc/init.d/tg-ws-proxy.in \\"
-            echo "    files/usr/bin/tg-ws-proxyctl \\"
-            echo "    files/usr/libexec/tg-ws-proxy/run.sh"
             exit 1
           fi
