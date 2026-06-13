@@ -86,6 +86,57 @@ unshield_firewall_hotplug() {
 }
 
 # ---------------------------------------------------------------------------
+# Fix E: force wget/uclient-fetch to IPv4-only for deterministic CI
+# ---------------------------------------------------------------------------
+
+force_wget_ipv4_only() {
+  # OpenWrt uses uclient-fetch as a lightweight wget replacement.
+  # uclient-fetch supports "-4" to force IPv4 only.
+  #
+  # In CI containers IPv6 routing can be missing/broken, and uclient-fetch
+  # may fail with misleading "Operation not permitted" messages (often just
+  # "connect failed" rendered via strerror()).
+  #
+  # Since apk invokes "wget", we install a smoke-only /usr/bin/wget wrapper
+  # to force IPv4-only behavior.
+  log "NET: forcing wget to use IPv4 only (smoke wrapper in /usr/bin/wget)..."
+
+  ctr_exec '
+    set -eu
+
+    # Determine the current wget (before we overwrite /usr/bin/wget).
+    real_wget="$(command -v wget 2>/dev/null || true)"
+
+    # If wget already exists in /usr/bin (unlikely in this rootfs), move it aside.
+    if [ "$real_wget" = "/usr/bin/wget" ] && [ -e "/usr/bin/wget" ]; then
+      mv /usr/bin/wget /usr/bin/wget.smoke-real 2>/dev/null || true
+      real_wget="/usr/bin/wget.smoke-real"
+    fi
+
+    # Create wrapper. Prefer calling uclient-fetch directly if present,
+    # otherwise call the original wget path.
+    cat > /usr/bin/wget <<EOF
+#!/bin/sh
+# Smoke-only wrapper: force IPv4 to avoid failures when IPv6 routing is missing.
+set -eu
+
+if command -v uclient-fetch >/dev/null 2>&1; then
+  exec uclient-fetch -4 "\$@"
+fi
+
+exec "${real_wget:-/bin/wget}" -4 "\$@"
+EOF
+
+    chmod 0755 /usr/bin/wget
+
+    # Best-effort sanity: ensure wrapper is in effect.
+    command -v wget >/dev/null 2>&1
+  '
+
+  log "NET: wget IPv4-only wrapper installed."
+}
+
+# ---------------------------------------------------------------------------
 # Fix D: stop OpenWrt network manager (netifd) to prevent routing drift
 # ---------------------------------------------------------------------------
 

@@ -45,6 +45,7 @@ phase_install() {
   # deterministically via ensure_outbound_network().
   stop_network_manager
   ensure_outbound_network   # flush ip rules + br-lan cleanup + probe
+  force_wget_ipv4_only      # make apk downloads deterministic in IPv4-only CI
 
   # --- apk update (smoke-controlled, with retry) --------------------------
 
