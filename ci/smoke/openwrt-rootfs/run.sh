@@ -2,7 +2,7 @@
 #
 # OpenWrt rootfs smoke test orchestrator (GitHub-hosted runner).
 #
-# Runs inside GitHub-hosted Ubuntu runner and uses Docker to start an OpenWrt
+# Runs on a GitHub-hosted Ubuntu runner and uses Docker to start an OpenWrt
 # rootfs container "as a system" via /sbin/init. Then it runs:
 #   install.sh -> update.sh -> uninstall.sh
 # and validates the expected invariants.
@@ -32,18 +32,52 @@ need_env ROOTFS_IMAGE
 ARTIFACT_DIR="${SMOKE_ARTIFACT_DIR:-${RUNNER_TEMP:-/tmp}/openwrt-rootfs-smoke}"
 SMOKE_BOOT_TIMEOUT_SEC="${SMOKE_BOOT_TIMEOUT_SEC:-120}"
 
-CTR="${SMOKE_CONTAINER_NAME:-openwrt-rootfs-smoke-${GITHUB_RUN_ID:-local}-$RANDOM}"
+# Ensure the artifact directory exists as early as possible so that
+# upload-artifact can always find it, even on early failures.
+mktempdir "$ARTIFACT_DIR"
+
+rand_hex() {
+  # Generate a short random hex suffix in a POSIX-safe way.
+  # Avoid bashisms like $RANDOM (not available in dash/ash).
+  if [ -r /dev/urandom ]; then
+    od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n'
+    return 0
+  fi
+  # Fallback: time + PID (still unique enough for CI runs).
+  printf '%s%s' "$(date +%s 2>/dev/null || echo 0)" "$$"
+}
+
+RUN_ID="${GITHUB_RUN_ID:-local}"
+CTR_DEFAULT="openwrt-rootfs-smoke-${RUN_ID}-$(rand_hex)-$$"
+CTR="${SMOKE_CONTAINER_NAME:-$CTR_DEFAULT}"
+
+write_metadata() {
+  {
+    echo "ROOTFS_IMAGE=$ROOTFS_IMAGE"
+    echo "CTR=$CTR"
+    echo "ARTIFACT_DIR=$ARTIFACT_DIR"
+    echo "SMOKE_BOOT_TIMEOUT_SEC=$SMOKE_BOOT_TIMEOUT_SEC"
+    echo "RUN_ID=$RUN_ID"
+    echo "DATE_UTC=$(date -u '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || true)"
+  } >"$ARTIFACT_DIR/metadata.txt" 2>/dev/null || true
+}
 
 cleanup() {
   code="$?"
+
+  # Always try to persist minimal context.
+  write_metadata
+
   log "Collecting diagnostics (exit code: $code)..."
   collect_artifacts || true
 
   log "Cleaning up container..."
   docker_best_effort docker rm -f "$CTR"
+
   exit "$code"
 }
 
+# Install traps as early as possible so early failures still produce artifacts.
 trap cleanup EXIT INT TERM
 
 log "Smoke config:"
