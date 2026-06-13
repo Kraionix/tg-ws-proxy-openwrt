@@ -1,43 +1,78 @@
 #!/bin/sh
 # Network fixups for OpenWrt rootfs smoke tests (POSIX sh).
 #
-# Problem A — netifd hotplug races apk downloads:
-#   When OpenWrt boots via /sbin/init, netifd initialises network interfaces
-#   and fires IFUP/IFUPDATE hotplug events. These trigger
-#   /etc/hotplug.d/iface/20-firewall → fw4 reload, which atomically replaces
-#   the entire nft ruleset and aborts all in-flight TCP connections used by
-#   apk/uclient-fetch. Symptoms:
-#     "wget: exited with error 4"
-#     "wgetFailed to send request: Operation not permitted"
-#     "unexpected end of file"
-#   This race persists even after `nft flush ruleset` + firewall stop because
-#   netifd continues running and re-triggers fw4 reload on every IFUP event.
+# Root cause (confirmed by OpenWrt issue #12138):
+#   uclient-fetch (used by apk) calls getaddrinfo() which returns both A and
+#   AAAA records. Docker automatically assigns an IPv6 link-local address
+#   (fe80::/64) to every veth interface via kernel autoconfiguration. There is
+#   no IPv6 default route and no IPv6 uplink. uclient-fetch attempts a
+#   connect() to the global IPv6 address; this fails with EPERM because either:
+#     (a) OpenWrt's nftables OUTPUT chain (loaded by fw4 at boot) blocks
+#         unrouted IPv6 egress, or
+#     (b) the kernel's own IPv6 source-address selection picks the link-local
+#         address and the connect() fails immediately for global destinations.
+#   Symptom: "Failed to send request: Operation not permitted" / wget error 4.
+#   Confirmed fix: disable IPv6 on all interfaces → uclient-fetch falls back
+#   to IPv4-only DNS and connect().
 #
-# Fix A — shield_firewall_hotplug / unshield_firewall_hotplug:
-#   Temporarily rename /etc/hotplug.d/iface/20-firewall to a .smoke-disabled
-#   suffix before any apk/git network operation, restore afterwards.
-#   Manual `fw4 reload` calls inside install.sh/update.sh are unaffected:
-#   the hotplug trigger only fires on netifd-emitted events, not on direct
-#   fw4 invocations.
+# Fix A — disable_ipv6:
+#   Set net.ipv6.conf.all.disable_ipv6=1 and net.ipv6.conf.default.disable_ipv6=1
+#   via sysctl inside the container. This removes all IPv6 addresses from all
+#   interfaces and prevents new link-local addresses from being assigned.
+#   uclient-fetch then resolves only A records and connects over IPv4.
 #
-# Problem B — missing default route after netifd applies router-like config:
-#   netifd may configure br-lan 192.168.1.1/24 and remove the Docker-provided
-#   default route. Fix B detects this via `ip route` and re-applies Docker
-#   networking from `docker inspect` output.
+# Fix B — shield_firewall_hotplug / unshield_firewall_hotplug:
+#   Kept as a belt-and-suspenders measure. Renames the netifd→fw4 hotplug
+#   trigger so IFUP/IFUPDATE events cannot reload nftables mid-download.
+#   (This was the primary fix in the previous iteration; it alone was
+#   insufficient because the IPv6 issue is independent of nftables state.)
+#
+# Fix C — ensure_outbound_network:
+#   Detects a missing IPv4 default route (netifd may clobber it with a
+#   router-like br-lan config) and re-applies Docker networking from
+#   `docker inspect` output.
 #
 set -eu
 
 # ---------------------------------------------------------------------------
-# Fix A: firewall hotplug shield
+# Fix A: disable IPv6 inside the container
+# ---------------------------------------------------------------------------
+
+disable_ipv6_in_container() {
+  # Disable IPv6 kernel stack on all current and future interfaces.
+  # This is the primary fix for uclient-fetch "Operation not permitted":
+  # with no IPv6 addresses, getaddrinfo returns only A records and
+  # uclient-fetch never attempts an IPv6 connect().
+  #
+  # sysctl is available on OpenWrt (busybox applet).
+  # The container runs with --privileged so sysctl writes are permitted.
+  log "IPV6: disabling IPv6 on all interfaces (sysctl)..."
+
+  ctr_exec "sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null 2>&1 || true"
+  ctr_exec "sysctl -w net.ipv6.conf.default.disable_ipv6=1 >/dev/null 2>&1 || true"
+
+  # Also flush any existing IPv6 addresses that were already assigned
+  # before the sysctl took effect (e.g. link-local on eth0/br-lan).
+  ctr_exec "
+    for iface in \$(ip -6 addr show 2>/dev/null \
+        | awk '/^[0-9]+:/{gsub(\":\",\"\",\$2); print \$2}'); do
+      ip -6 addr flush dev \"\$iface\" 2>/dev/null || true
+    done
+  "
+
+  log "IPV6: IPv6 disabled and existing addresses flushed."
+}
+
+# ---------------------------------------------------------------------------
+# Fix B: firewall hotplug shield (belt-and-suspenders)
 # ---------------------------------------------------------------------------
 
 _HOTPLUG_FW="/etc/hotplug.d/iface/20-firewall"
 _HOTPLUG_FW_DISABLED="/etc/hotplug.d/iface/20-firewall.smoke-disabled"
 
 shield_firewall_hotplug() {
-  # Rename the netifd→fw4 hotplug trigger so that IFUP/IFUPDATE events
-  # emitted by netifd during apk/git downloads cannot reload nftables and
-  # abort in-flight TCP connections.
+  # Rename the netifd→fw4 hotplug trigger to prevent IFUP/IFUPDATE events
+  # from reloading nftables and aborting in-flight TCP connections.
   if ctr_exec "[ -f '$_HOTPLUG_FW' ]" >/dev/null 2>&1; then
     ctr_exec "mv '$_HOTPLUG_FW' '$_HOTPLUG_FW_DISABLED'"
     log "FW-SHIELD: netifd→fw4 hotplug trigger disabled (renamed to .smoke-disabled)."
@@ -49,8 +84,7 @@ shield_firewall_hotplug() {
 }
 
 unshield_firewall_hotplug() {
-  # Restore the hotplug trigger after apk/git downloads are complete.
-  # Called after install.sh / update.sh finish their network operations.
+  # Restore the hotplug trigger after all network I/O is complete.
   if ctr_exec "[ -f '$_HOTPLUG_FW_DISABLED' ]" >/dev/null 2>&1; then
     ctr_exec "mv '$_HOTPLUG_FW_DISABLED' '$_HOTPLUG_FW'"
     log "FW-SHIELD: netifd→fw4 hotplug trigger restored."
@@ -60,17 +94,12 @@ unshield_firewall_hotplug() {
 }
 
 # ---------------------------------------------------------------------------
-# Fix B: Docker default route recovery
+# Fix C: Docker default route recovery
 # ---------------------------------------------------------------------------
 
 docker_inspect_netinfo() {
-  # Prints 4 lines to stdout:
-  #   ip
-  #   prefixlen
-  #   gateway
-  #   mac
-  #
-  # Avoid jq dependency: use python3 available on GitHub-hosted runners.
+  # Prints 4 lines to stdout: ip / prefixlen / gateway / mac
+  # Uses python3 (available on GitHub-hosted runners) to avoid jq dependency.
   docker inspect "$CTR" | python3 - <<'PY'
 import json, sys
 
@@ -124,7 +153,8 @@ ensure_outbound_network() {
   DOCKER_MAC="$(printf '%s\n' "$netinfo" | sed -n '4p' | tr -d '\r' | head -n1)"
 
   validate_ipv4 "$DOCKER_IP" || die "NET: invalid Docker IPv4 from inspect: '$DOCKER_IP'"
-  validate_prefixlen "$DOCKER_PREFIXLEN" || die "NET: invalid Docker prefixlen from inspect: '$DOCKER_PREFIXLEN'"
+  validate_prefixlen "$DOCKER_PREFIXLEN" \
+    || die "NET: invalid Docker prefixlen from inspect: '$DOCKER_PREFIXLEN'"
   validate_ipv4 "$DOCKER_GW" || die "NET: invalid Docker gateway from inspect: '$DOCKER_GW'"
   validate_mac "$DOCKER_MAC" || die "NET: invalid Docker MAC from inspect: '$DOCKER_MAC'"
 
@@ -147,7 +177,7 @@ ifname="$(
 )"
 [ -n "$ifname" ] || ifname="eth0"
 
-# Prefer br-lan for L3 if the veth is enslaved into it.
+# Prefer br-lan for L3 assignment if the veth is enslaved into it.
 l3="$ifname"
 if ip link show "$ifname" 2>/dev/null | grep -q "master br-lan"; then
   l3="br-lan"

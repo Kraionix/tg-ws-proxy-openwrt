@@ -1,18 +1,19 @@
 #!/bin/sh
 # INSTALL phase: run install.sh and validate key invariants.
 #
-# Network stability strategy:
-#   1. Stop firewall service and flush nft ruleset (clears any initial rules).
-#   2. Shield the netifd→fw4 hotplug trigger BEFORE any apk/git network I/O.
-#      This prevents netifd IFUP/IFUPDATE events from triggering fw4 reload,
-#      which would atomically replace the nft ruleset and abort in-flight TCP
-#      connections used by apk/uclient-fetch.
-#   3. Verify/restore Docker default route.
-#   4. Run apk update (retry) then install.sh.
-#   5. Unshield the hotplug trigger AFTER all downloads complete.
-#      install.sh's own `fw4 reload` call is a direct invocation and is
-#      unaffected by the shield (shield only blocks netifd-emitted events).
-#   6. Run post-install assertions (UCI rule, fw4 ruleset, files, users).
+# Network stability strategy (ordered):
+#   1. Stop firewall service and flush nft ruleset.
+#   2. Disable IPv6 kernel stack via sysctl (PRIMARY FIX for wget EPERM):
+#      Docker assigns a link-local IPv6 address to the veth automatically.
+#      uclient-fetch (used by apk) tries IPv6 first; with no IPv6 uplink this
+#      results in EPERM. Disabling IPv6 forces IPv4-only DNS and connect().
+#   3. Shield netifd→fw4 hotplug trigger (belt-and-suspenders):
+#      Prevents IFUP/IFUPDATE events from reloading nftables mid-download.
+#   4. Verify/restore Docker IPv4 default route.
+#   5. Run smoke-controlled apk update (with retry).
+#   6. Run install.sh (which performs all apk/git network I/O).
+#   7. Unshield hotplug trigger after downloads complete.
+#   8. Run post-install assertions.
 
 set -eu
 
@@ -35,8 +36,12 @@ phase_install() {
   ctr_exec "/etc/init.d/firewall stop >/dev/null 2>&1 || true"
   ctr_exec "nft flush ruleset >/dev/null 2>&1 || true"
 
-  # Shield MUST come after firewall stop (so fw4 state is clean) and BEFORE
-  # any apk/git network I/O (so netifd cannot reload fw4 mid-download).
+  # PRIMARY FIX: disable IPv6 before any apk/git network I/O.
+  # Must come after firewall stop so that fw4 cannot re-add IPv6 OUTPUT rules,
+  # and before the hotplug shield so netifd cannot re-enable IPv6 via hotplug.
+  disable_ipv6_in_container
+
+  # Belt-and-suspenders: also shield the netifd→fw4 hotplug trigger.
   log "INSTALL: shielding netifd→fw4 hotplug trigger..."
   shield_firewall_hotplug
 
@@ -66,9 +71,9 @@ phase_install() {
   log "INSTALL: running install.sh..."
   ctr_exec ". /root/smoke/smoke.env; cd /root/smoke/repo; ./install.sh"
 
-  # All apk/git downloads are done at this point.
-  # Restore the hotplug trigger so the system behaves normally for the rest
-  # of the smoke run (update/uninstall phases, fw4 assertions).
+  # All apk/git downloads are complete at this point.
+  # Restore the hotplug trigger so the system behaves normally for subsequent
+  # phases (update, uninstall) and fw4/UCI assertions.
   log "INSTALL: restoring netifd→fw4 hotplug trigger..."
   unshield_firewall_hotplug
 

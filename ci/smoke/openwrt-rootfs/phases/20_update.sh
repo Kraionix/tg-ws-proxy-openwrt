@@ -1,10 +1,12 @@
 #!/bin/sh
 # UPDATE phase: run update.sh and validate key invariants.
 #
-# update.sh performs `git fetch` (network I/O) and may call `apk add` for
-# any missing packages. Shield the netifd→fw4 hotplug trigger for the
-# duration of update.sh to prevent the same nft ruleset race that affects
-# the install phase.
+# update.sh performs git fetch (network I/O) and may call apk add for missing
+# packages. Apply the same network fixups as the install phase:
+#   - IPv6 was already disabled in the install phase (sysctl persists for the
+#     container lifetime); no need to disable again.
+#   - Shield the netifd→fw4 hotplug trigger for the duration of update.sh to
+#     prevent any late IFUP events from reloading nftables mid-download.
 
 set -eu
 
