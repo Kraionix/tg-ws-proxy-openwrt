@@ -49,20 +49,43 @@ docker_inspect_to_file() {
   set -e
 }
 
-wait_for_procd_pid1() {
+wait_for_openwrt_ready() {
+  # OpenWrt in containers may keep /sbin/init as PID 1 while procd runs as a child.
+  # Accept either:
+  #   - PID 1 == procd
+  #   - PID 1 == init AND procd is running
   timeout="${1:-120}"
   i=0
+
   while [ "$i" -lt "$timeout" ]; do
-    if docker ps --format '{{.Names}}' | grep -qx "$CTR"; then
-      comm="$(ctr_capture 'cat /proc/1/comm 2>/dev/null || true' | tr -d '\r' | head -n1)"
-      if [ "$comm" = "procd" ]; then
-        return 0
-      fi
-    else
+    if ! docker ps --format '{{.Names}}' | grep -qx "$CTR"; then
       return 1
     fi
+
+    comm="$(
+      docker exec "$CTR" cat /proc/1/comm 2>/dev/null \
+        | tr -d '\r' \
+        | head -n1 || true
+    )"
+
+    case "$comm" in
+      procd)
+        return 0
+        ;;
+      init)
+        # In some boot stages procd may already be running even if PID 1 is still init.
+        if docker exec "$CTR" pidof procd >/dev/null 2>&1; then
+          return 0
+        fi
+        ;;
+      *)
+        # Keep waiting.
+        ;;
+    esac
+
     i=$((i + 1))
     sleep 1
   done
+
   return 1
 }
