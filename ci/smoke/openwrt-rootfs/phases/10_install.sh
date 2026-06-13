@@ -39,6 +39,11 @@ phase_install() {
 
   disable_ipv6_in_container
   shield_firewall_hotplug
+
+  # Variant A: stop netifd/network to prevent asynchronous routing changes
+  # during apk downloads. Then configure Docker veth IP + default route
+  # deterministically via ensure_outbound_network().
+  stop_network_manager
   ensure_outbound_network   # flush ip rules + br-lan cleanup + probe
 
   # --- apk update (smoke-controlled, with retry) --------------------------

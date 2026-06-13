@@ -29,6 +29,7 @@
 # Fix strategy (defence in depth):
 #   A. disable_ipv6_in_container: kept from iteration 2 (belt-and-suspenders).
 #   B. shield_firewall_hotplug: kept from iteration 1 (belt-and-suspenders).
+#   D. stop_network_manager: stop netifd to prevent routing drift mid-download.
 #   C. ensure_outbound_network (extended):
 #      1. Flush all policy routing rules and restore the single default lookup main.
 #      2. Remove any IP addresses from br-lan to prevent it from being selected
@@ -81,6 +82,44 @@ unshield_firewall_hotplug() {
     log "FW-SHIELD: netifd→fw4 hotplug trigger restored."
   else
     log "FW-SHIELD: no shielded trigger to restore (noop)."
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# Fix D: stop OpenWrt network manager (netifd) to prevent routing drift
+# ---------------------------------------------------------------------------
+
+stop_network_manager() {
+  # In system-like boot, netifd can keep applying /etc/config/network:
+  # - enslave eth0 into br-lan
+  # - add 192.168.1.1/24 to br-lan
+  # - inject policy routing rules (ip rule) that break outbound connectivity
+  # Those changes can happen asynchronously and interrupt apk downloads.
+  #
+  # For smoke testing, we prefer deterministic networking:
+  # - stop network service
+  # - kill any remaining netifd processes
+  # - then apply our fixed Docker veth IP + default route manually
+  log "NET: stopping OpenWrt network manager (netifd) to prevent routing drift..."
+
+  ctr_exec "/etc/init.d/network stop >/dev/null 2>&1 || true"
+
+  ctr_exec '
+    pids="$(pidof netifd 2>/dev/null || true)"
+    if [ -n "$pids" ]; then
+      kill $pids 2>/dev/null || true
+      sleep 1
+      pids2="$(pidof netifd 2>/dev/null || true)"
+      if [ -n "$pids2" ]; then
+        kill -9 $pids2 2>/dev/null || true
+      fi
+    fi
+  '
+
+  if ctr_exec "pidof netifd >/dev/null 2>&1"; then
+    warn "NET: netifd is still running after stop; continuing anyway."
+  else
+    log "NET: netifd stopped."
   fi
 }
 
