@@ -1,0 +1,56 @@
+name: smoke (OpenWrt rootfs)
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 3 * * *"
+
+# Hardening: least privilege for GITHUB_TOKEN.
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Stable PR/push target: OpenWrt 25.12.4 rootfs container (pinned digest).
+          - name: "x86_64-25.12.4"
+            image: "ghcr.io/openwrt/rootfs:x86_64-25.12.4@sha256:652d5b94fb907cab9e46df3a7f4e25a557328bd6d0a8c7096cb4c25990d6a1ff"
+            run_on_pr: true
+
+          # Drift detector: SNAPSHOT (only on schedule / manual).
+          - name: "x86_64-SNAPSHOT"
+            image: "ghcr.io/openwrt/rootfs:x86_64-SNAPSHOT"
+            run_on_pr: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Smoke (install/update/uninstall)
+        if: matrix.run_on_pr || github.event_name != 'pull_request'
+        env:
+          ROOTFS_IMAGE: ${{ matrix.image }}
+          SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/openwrt-rootfs-smoke-${{ matrix.name }}
+          SMOKE_BOOT_TIMEOUT_SEC: "120"
+        run: |
+          set -eu
+          chmod +x ci/smoke/openwrt-rootfs/run.sh
+          ci/smoke/openwrt-rootfs/run.sh
+
+      - name: Upload smoke artifacts (on failure)
+        if: failure() && (matrix.run_on_pr || github.event_name != 'pull_request')
+        uses: actions/upload-artifact@b4b15b8c7c6ac21ea08fcf65892d2ee8f75cf882 # v4.4.3
+        with:
+          name: openwrt-rootfs-smoke-${{ matrix.name }}
+          path: ${{ runner.temp }}/openwrt-rootfs-smoke-${{ matrix.name }}
+          if-no-files-found: warn
+          retention-days: 14

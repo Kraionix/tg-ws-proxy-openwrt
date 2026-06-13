@@ -4,7 +4,6 @@
 #
 # - Ensures required packages exist (apk split packages)
 # - Updates upstream source (origin/HEAD) OR pins to TGWS_GIT_REF if configured
-# - Reinstalls Python package with flash-wear-friendly options
 # - Updates init script, runner, helper, and common library
 # - Syncs firewall rule port (and migrates legacy rule name)
 # - Warns if .env.example contains new keys missing in /etc/tg-ws-proxy.env
@@ -35,7 +34,8 @@ CONFIG_FILE="/etc/tg-ws-proxy.env"
 EXAMPLE_FILE="$SRC/etc/tg-ws-proxy.env.example"
 
 log "Checking dependencies..."
-for pkg in ca-certificates python3 python3-pip git \
+for pkg in ca-certificates python3 git \
+  python3-cryptography \
   procps-ng-pgrep \
   shadow-useradd shadow-groupadd shadow-usermod shadow-userdel shadow-groupdel; do
   if ! apk info -e "$pkg" >/dev/null 2>&1; then
@@ -94,14 +94,11 @@ else
   err "$TARGET_DIR is not a git repository. Run install.sh first."
 fi
 
-log "Reinstalling Python package..."
-cd "$TARGET_DIR"
-mkdir -p /tmp/tg-ws-proxy-pycache 2>/dev/null || true
-PIP_DISABLE_PIP_VERSION_CHECK=1 \
-  PYTHONDONTWRITEBYTECODE=1 \
-  PYTHONPYCACHEPREFIX=/tmp/tg-ws-proxy-pycache \
-  python3 -m pip install --no-cache-dir --no-compile . -q
-ok "Python package updated."
+log "Validating upstream proxy entrypoint..."
+if ! python3 /usr/lib/tg-ws-proxy/proxy/tg_ws_proxy.py --help >/dev/null 2>&1; then
+  err "Upstream proxy failed to run after update (missing Python deps?)."
+fi
+ok "Upstream proxy entrypoint OK."
 
 log "Updating system files..."
 TEMPLATE="$SRC/etc/init.d/tg-ws-proxy.in"

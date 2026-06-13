@@ -2,11 +2,10 @@
 #
 # install.sh - idempotent installer for tg-ws-proxy on OpenWrt 25.12+ (apk)
 #
-# - Installs dependencies via apk
-# - Creates tgproxy user/group (shadow split packages)
+# - Installs dependencies via apk (including split shadow packages)
+# - Creates tgproxy user/group
 # - Clones/updates upstream Flowseal/tg-ws-proxy into /usr/lib/tg-ws-proxy
 # - Supports upstream pinning via TGWS_GIT_REF in /etc/tg-ws-proxy.env
-# - Installs Python package via pip (reduced flash wear settings)
 # - Installs procd init script, runner, and tg-ws-proxyctl helper
 # - Creates firewall4 WAN->DROP rule for TGWS_PORT (local proxy default)
 # - Backs up only /etc/tg-ws-proxy.env via /etc/sysupgrade.conf
@@ -23,12 +22,10 @@ tgws_lock
 
 log "Installing dependencies..."
 apk -U add -q \
-  ca-certificates python3 python3-pip git \
+  ca-certificates python3 git \
+  python3-cryptography \
   procps-ng-pgrep \
   shadow-useradd shadow-groupadd shadow-usermod shadow-userdel shadow-groupdel
-
-# Optional:
-# apk -U add -q procps-ng-ps
 
 # Reduce surprises from apk split packages: verify required commands exist
 require_cmd apk
@@ -164,20 +161,11 @@ else
   ok "Upstream set to origin/HEAD."
 fi
 
-log "Installing Python package..."
-cd "$TARGET_DIR"
-
-# Reduce flash wear:
-# - no pip cache
-# - no .pyc compilation during install
-# - redirect pycache to /tmp (RAM)
-mkdir -p /tmp/tg-ws-proxy-pycache 2>/dev/null || true
-PIP_DISABLE_PIP_VERSION_CHECK=1 \
-  PYTHONDONTWRITEBYTECODE=1 \
-  PYTHONPYCACHEPREFIX=/tmp/tg-ws-proxy-pycache \
-  python3 -m pip install --no-cache-dir --no-compile . -q
-
-ok "Python package installed."
+log "Validating upstream proxy entrypoint..."
+if ! python3 /usr/lib/tg-ws-proxy/proxy/tg_ws_proxy.py --help >/dev/null 2>&1; then
+  err "Upstream proxy failed to run (missing Python deps?). Try installing more python3-* packages or pin a known-good TGWS_GIT_REF."
+fi
+ok "Upstream proxy entrypoint OK."
 
 log "Installing init script..."
 TEMPLATE="$SRC_DIR/etc/init.d/tg-ws-proxy.in"

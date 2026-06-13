@@ -1,0 +1,19 @@
+# Smoke test defaults (sourced inside the container).
+# Keep this file secret-free and deterministic.
+
+TGWS_HOST="127.0.0.1"
+TGWS_PORT="1443"
+TGWS_SECRET="0123456789abcdef0123456789abcdef"
+TGWS_DC_IPS="2:149.154.167.220 4:149.154.167.220"
+TGWS_LOG_FILE="/var/log/tg-ws-proxy.log"
+TGWS_LOG_MAX_MB="1"
+TGWS_LOG_BACKUPS="1"
+TGWS_VERBOSE="false"
+TGWS_BUF_KB="64"
+TGWS_POOL_SIZE="1"
+TGWS_NO_CFPROXY="true"
+TGWS_CFPROXY_DOMAIN=""
+TGWS_CFPROXY_WORKER_DOMAIN=""
+TGWS_FAKE_TLS_DOMAIN=""
+TGWS_PROXY_PROTOCOL="false"
+TGWS_GIT_REF=""

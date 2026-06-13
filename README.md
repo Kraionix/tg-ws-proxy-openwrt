@@ -23,7 +23,7 @@ A small deployment toolkit to install, update, manage, and remove
 ## Requirements
 - OpenWrt **25.12 or newer** (package manager: **apk**).
 - Internet access to install packages and clone upstream.
-- Enough overlay space (git clone + pip).
+- Enough overlay space for a git checkout of upstream.
 
 ## Quick install
 1. Install git (if missing):
@@ -134,25 +134,12 @@ Rule of thumb:
 - Use sysupgrade/ASU/owut to upgrade OpenWrt.
 
 ## CI / quality (lint gate)
-This repo includes a GitHub Actions workflow that checks:
+This repo includes GitHub Actions workflows that check:
 - shellcheck (POSIX sh),
 - checkbashisms (bash-only syntax),
-- shfmt (format).
-
-## Local development (pre-commit)
-This repo ships a local `pre-commit` setup to auto-format shell scripts with `shfmt`
-before committing (and fix trivial whitespace issues).
-
-One-time setup:
-```sh
-python3 -m pip install --user pre-commit
-pre-commit install --install-hooks
-```
-
-Run on demand:
-```sh
-pre-commit run --all-files
-```
+- shfmt (format),
+- actionlint (GitHub Actions workflow lint),
+- smoke test on OpenWrt rootfs container (install/update/uninstall).
 
 ## Uninstall
 ```sh
@@ -161,4 +148,3 @@ pre-commit run --all-files
 - `--dry-run` – show planned actions without executing them
 - `--keep-config` – keep `/etc/tg-ws-proxy.env`
 - `--force` – remove without confirmation
-```
