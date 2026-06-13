@@ -1,19 +1,20 @@
 #!/bin/sh
 # INSTALL phase: run install.sh and validate key invariants.
 #
-# Network stability strategy (ordered):
+# Network stability strategy (iteration 3 — policy routing fix):
 #   1. Stop firewall service and flush nft ruleset.
-#   2. Disable IPv6 kernel stack via sysctl (PRIMARY FIX for wget EPERM):
-#      Docker assigns a link-local IPv6 address to the veth automatically.
-#      uclient-fetch (used by apk) tries IPv6 first; with no IPv6 uplink this
-#      results in EPERM. Disabling IPv6 forces IPv4-only DNS and connect().
-#   3. Shield netifd→fw4 hotplug trigger (belt-and-suspenders):
-#      Prevents IFUP/IFUPDATE events from reloading nftables mid-download.
-#   4. Verify/restore Docker IPv4 default route.
-#   5. Run smoke-controlled apk update (with retry).
-#   6. Run install.sh (which performs all apk/git network I/O).
-#   7. Unshield hotplug trigger after downloads complete.
-#   8. Run post-install assertions.
+#   2. Disable IPv6 (prevents uclient-fetch IPv6 attempt on IPv4-only uplink).
+#   3. Shield netifd→fw4 hotplug trigger (prevents nftables reload mid-download).
+#   4. Stabilise container network:
+#      a. Flush netifd policy routing rules (ip rule) — PRIMARY FIX for EPERM.
+#      b. Remove IPv4 addresses from br-lan (prevents wrong source selection).
+#      c. Verify/restore Docker IP on veth and default route.
+#      d. Verify source address via `ip route get 8.8.8.8`.
+#      e. HTTPS connectivity probe against downloads.openwrt.org.
+#   5. Run smoke-controlled apk update (belt-and-suspenders retry).
+#   6. Run install.sh.
+#   7. Unshield hotplug trigger.
+#   8. Post-install assertions.
 
 set -eu
 
@@ -30,23 +31,15 @@ phase_install() {
 
   ctr_exec "cd /root/smoke/repo && chmod +x install.sh update.sh uninstall.sh"
 
-  # --- Network preparation ------------------------------------------------
+  # --- Network preparation (ordered; see netfix.sh for rationale) ---------
 
   log "INSTALL: stopping firewall service and flushing nft ruleset..."
   ctr_exec "/etc/init.d/firewall stop >/dev/null 2>&1 || true"
   ctr_exec "nft flush ruleset >/dev/null 2>&1 || true"
 
-  # PRIMARY FIX: disable IPv6 before any apk/git network I/O.
-  # Must come after firewall stop so that fw4 cannot re-add IPv6 OUTPUT rules,
-  # and before the hotplug shield so netifd cannot re-enable IPv6 via hotplug.
   disable_ipv6_in_container
-
-  # Belt-and-suspenders: also shield the netifd→fw4 hotplug trigger.
-  log "INSTALL: shielding netifd→fw4 hotplug trigger..."
   shield_firewall_hotplug
-
-  log "INSTALL: ensuring outbound network is usable (Docker fixup if needed)..."
-  ensure_outbound_network
+  ensure_outbound_network   # flush ip rules + br-lan cleanup + probe
 
   # --- apk update (smoke-controlled, with retry) --------------------------
 
@@ -71,9 +64,6 @@ phase_install() {
   log "INSTALL: running install.sh..."
   ctr_exec ". /root/smoke/smoke.env; cd /root/smoke/repo; ./install.sh"
 
-  # All apk/git downloads are complete at this point.
-  # Restore the hotplug trigger so the system behaves normally for subsequent
-  # phases (update, uninstall) and fw4/UCI assertions.
   log "INSTALL: restoring netifd→fw4 hotplug trigger..."
   unshield_firewall_hotplug
 

@@ -1,24 +1,20 @@
 #!/bin/sh
 # UPDATE phase: run update.sh and validate key invariants.
 #
-# update.sh performs git fetch (network I/O) and may call apk add for missing
-# packages. Apply the same network fixups as the install phase:
-#   - IPv6 was already disabled in the install phase (sysctl persists for the
-#     container lifetime); no need to disable again.
-#   - Shield the netifd→fw4 hotplug trigger for the duration of update.sh to
-#     prevent any late IFUP events from reloading nftables mid-download.
+# Network note: IPv6 is already disabled and policy routing is already flushed
+# from the install phase (sysctl and ip rule state persist for the container
+# lifetime). Shield the hotplug trigger for the duration of update.sh to
+# cover any late netifd IFUP events during git fetch / apk add.
 
 set -eu
 
 phase_update() {
-  # Shield before update.sh starts network operations (git fetch, apk).
   log "UPDATE: shielding netifd→fw4 hotplug trigger..."
   shield_firewall_hotplug
 
   log "UPDATE: running update.sh..."
   ctr_exec ". /root/smoke/smoke.env; cd /root/smoke/repo; ./update.sh"
 
-  # Restore hotplug trigger before assertions so fw4 state is normal.
   log "UPDATE: restoring netifd→fw4 hotplug trigger..."
   unshield_firewall_hotplug
 
