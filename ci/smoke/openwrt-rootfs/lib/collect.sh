@@ -12,8 +12,13 @@ collect_artifacts() {
   ctr_best_effort_to_file "cat /proc/1/comm 2>/dev/null || true" "$ARTIFACT_DIR/proc1-comm.txt"
   ctr_best_effort_to_file "ps w || ps" "$ARTIFACT_DIR/ps.txt"
 
+  ctr_best_effort_to_file "ip -4 addr show || true" "$ARTIFACT_DIR/ip-addr.txt"
+  ctr_best_effort_to_file "ip -4 route show || true" "$ARTIFACT_DIR/ip-route.txt"
+  ctr_best_effort_to_file "cat /etc/resolv.conf 2>/dev/null || true" "$ARTIFACT_DIR/resolv.conf.txt"
+
   ctr_best_effort_to_file "uci show firewall 2>/dev/null || true" "$ARTIFACT_DIR/uci-firewall.txt"
   fw4_print_to_file "$ARTIFACT_DIR/fw4-print.txt"
+  ctr_best_effort_to_file "nft list ruleset 2>/dev/null || true" "$ARTIFACT_DIR/nft-ruleset.txt"
 
   set +e
   ctr_capture "cat /etc/tg-ws-proxy.env 2>/dev/null || true" >"$ARTIFACT_DIR/tg-ws-proxy.env.raw" 2>/dev/null

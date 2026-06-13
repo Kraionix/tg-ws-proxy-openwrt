@@ -28,6 +28,26 @@ fi
 
 tgws_lock
 
+apk_add_retry() {
+  # Retry apk installs to reduce flakiness (transient network / mirror issues).
+  # Usage: apk_add_retry <tries> <apk args...>
+  tries="${1:-5}"
+  shift || true
+
+  i=1
+  while :; do
+    if apk -U add -q "$@"; then
+      return 0
+    fi
+    if [ "$i" -ge "$tries" ]; then
+      return 1
+    fi
+    warn "apk add failed (attempt $i/$tries). Retrying in 3s..."
+    i=$((i + 1))
+    sleep 3
+  done
+}
+
 TARGET_DIR="/usr/lib/tg-ws-proxy"
 SRC="$(dirname "$0")/files"
 CONFIG_FILE="/etc/tg-ws-proxy.env"
@@ -40,7 +60,7 @@ for pkg in ca-certificates python3 git \
   shadow-useradd shadow-groupadd shadow-usermod shadow-userdel shadow-groupdel; do
   if ! apk info -e "$pkg" >/dev/null 2>&1; then
     warn "Missing package $pkg; installing..."
-    apk -U add -q "$pkg"
+    apk_add_retry 5 "$pkg"
   fi
 done
 ok "Dependencies OK."

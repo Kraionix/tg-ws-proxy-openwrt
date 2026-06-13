@@ -20,8 +20,28 @@ SRC_DIR="$(dirname "$0")/files"
 
 tgws_lock
 
+apk_add_retry() {
+  # Retry apk installs to reduce flakiness (transient network / mirror issues).
+  # Usage: apk_add_retry <tries> <apk args...>
+  tries="${1:-5}"
+  shift || true
+
+  i=1
+  while :; do
+    if apk -U add -q "$@"; then
+      return 0
+    fi
+    if [ "$i" -ge "$tries" ]; then
+      return 1
+    fi
+    warn "apk add failed (attempt $i/$tries). Retrying in 3s..."
+    i=$((i + 1))
+    sleep 3
+  done
+}
+
 log "Installing dependencies..."
-apk -U add -q \
+apk_add_retry 5 \
   ca-certificates python3 git \
   python3-cryptography \
   procps-ng-pgrep \

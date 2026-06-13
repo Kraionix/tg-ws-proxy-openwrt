@@ -15,8 +15,24 @@ phase_install() {
 
   ctr_exec "cd /root/smoke/repo && chmod +x install.sh update.sh uninstall.sh"
 
+  log "INSTALL: stopping firewall temporarily to avoid blocking outbound downloads..."
+  ctr_exec "/etc/init.d/firewall stop >/dev/null 2>&1 || true"
+  ctr_exec "nft flush ruleset >/dev/null 2>&1 || true"
+
   log "INSTALL: ensuring apk can reach repositories (apk update)..."
-  ctr_exec "apk update >/dev/null"
+  # Retry to reduce flakiness from transient network/CDN issues.
+  ctr_exec '
+    i=1
+    while :; do
+      apk update >/dev/null 2>&1 && exit 0
+      [ "$i" -ge 5 ] && break
+      echo "[smoke] apk update failed (attempt $i/5). Retrying in 3s..." >&2
+      i=$((i + 1))
+      sleep 3
+    done
+    echo "[smoke] apk update failed after retries" >&2
+    exit 1
+  '
 
   log "INSTALL: running install.sh..."
   ctr_exec ". /root/smoke/smoke.env; cd /root/smoke/repo; ./install.sh"
