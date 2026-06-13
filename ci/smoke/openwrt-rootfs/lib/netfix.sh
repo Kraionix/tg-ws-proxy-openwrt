@@ -89,16 +89,36 @@ unshield_firewall_hotplug() {
 # ---------------------------------------------------------------------------
 
 docker_inspect_netinfo() {
-  docker inspect "$CTR" | python3 - <<'PY'
-import json, sys
-j = json.load(sys.stdin)[0]
-nets = (j.get("NetworkSettings") or {}).get("Networks") or {}
-net = next(iter(nets.values()), {}) if isinstance(nets, dict) else {}
-print(net.get("IPAddress") or "")
-print("" if net.get("IPPrefixLen") is None else net.get("IPPrefixLen"))
-print(net.get("Gateway") or "")
-print(net.get("MacAddress") or "")
-PY
+  # Prefer the default "bridge" network (common for `docker run` without --network).
+  # Otherwise, fall back to the first attached network name.
+  #
+  # We intentionally avoid parsing JSON with python/heredoc here because stdin
+  # redirections (heredoc) conflict with pipe-based input and can break in CI.
+  net="$(
+    docker inspect -f '{{with (index .NetworkSettings.Networks "bridge")}}bridge{{end}}' "$CTR" 2>/dev/null \
+      | tr -d '\r' \
+      | head -n1
+  )"
+
+  if [ -z "$net" ]; then
+    net="$(
+      docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$CTR" 2>/dev/null \
+        | tr -d '\r' \
+        | head -n1
+    )"
+  fi
+
+  [ -n "$net" ] || die "NET: unable to determine Docker network name from inspect output"
+
+  # Print 4 lines:
+  #   1) IPAddress
+  #   2) IPPrefixLen
+  #   3) Gateway
+  #   4) MacAddress
+  #
+  # Note: docker inspect supports Go templates via --format/-f.
+  docker inspect -f "{{with (index .NetworkSettings.Networks \"${net}\")}}{{println .IPAddress}}{{println .IPPrefixLen}}{{println .Gateway}}{{println .MacAddress}}{{end}}" "$CTR" 2>/dev/null \
+    | tr -d '\r'
 }
 
 validate_ipv4() {
