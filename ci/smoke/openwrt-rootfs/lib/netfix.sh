@@ -201,9 +201,17 @@ mac="$(printf '%s' "${DOCKER_MAC:?}" | tr 'A-F' 'a-f')"
 # Find the veth interface by MAC.
 ifname="$(
   ip -o link 2>/dev/null \
-    | awk -v mac="$mac" 'tolower($0) ~ mac { gsub(":", "", $2); print $2; exit }'
+    | awk -v mac="$mac" '
+        tolower($0) ~ mac {
+          gsub(":", "", $2)
+          sub("@.*", "", $2)   # "eth0@if5" is display notation; real ifname is "eth0"
+          print $2
+          exit
+        }
+      '
 )"
 [ -n "$ifname" ] || ifname="eth0"
+ifname="${ifname%%@*}"  # double safety: ensure no "@ifX" suffix remains
 
 # Always assign the Docker IP directly to the veth, not to br-lan.
 # If the veth is enslaved into br-lan, bring br-lan down to release it,
